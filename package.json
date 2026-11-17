@@ -1,0 +1,38 @@
+{
+  "name": "snow-ctl",
+  "version": "0.1.0",
+  "description": "ServiceNow CLI with browser/SSO login (OAuth 2.0 authorization code + PKCE). Incidents, changes, requests, any table, raw REST.",
+  "keywords": [
+    "servicenow",
+    "cli",
+    "sso",
+    "oauth",
+    "pkce",
+    "incident",
+    "itsm"
+  ],
+  "homepage": "https://github.com/parnniti/snow#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/parnniti/snow.git"
+  },
+  "bugs": {
+    "url": "https://github.com/parnniti/snow/issues"
+  },
+  "author": "Nitipan Su-inn (https://github.com/parnniti)",
+  "type": "module",
+  "bin": {
+    "snow": "bin/snow.js"
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20.18"
+  },
+  "license": "MIT"
+}
