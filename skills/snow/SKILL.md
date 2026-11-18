@@ -10,7 +10,7 @@ metadata:
 
 `snow` talks to ServiceNow's REST Table API with an OAuth token obtained through the browser
 (works with SSO and MFA). Run `snow <command> -h` for exact flags. If `snow` is missing:
-`npm install -g snow-ctl`.
+`npm install -g @parnniti/snow`.
 
 ## Pick the instance first
 

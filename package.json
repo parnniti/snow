@@ -1,5 +1,5 @@
 {
-  "name": "snow-ctl",
+  "name": "@parnniti/snow",
   "version": "0.1.0",
   "description": "ServiceNow CLI with browser/SSO login (OAuth 2.0 authorization code + PKCE). Incidents, changes, requests, any table, raw REST.",
   "keywords": [
@@ -35,5 +35,8 @@
   "engines": {
     "node": ">=20.18"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
 }

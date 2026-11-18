@@ -116,7 +116,7 @@ export function installSkills(skills, { dests, agents = [], force = false, dryRu
         fs.cpSync(skill.dir, dst, { recursive: true });
         fs.writeFileSync(
           path.join(dst, MARKER),
-          JSON.stringify({ name: skill.name, package: 'snow-ctl', version, hash: srcHash, installedAt: new Date().toISOString() }, null, 2) + '\n',
+          JSON.stringify({ name: skill.name, package: '@parnniti/snow', version, hash: srcHash, installedAt: new Date().toISOString() }, null, 2) + '\n',
         );
       }
       record(skill.name, dst, info.state === 'absent' ? 'installed' : 'updated');

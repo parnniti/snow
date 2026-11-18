@@ -4,8 +4,8 @@ A small ServiceNow CLI that logs in through your browser, so it works with SSO (
 You don't need a password, an admin-created OAuth app, or a client secret. It has no dependencies and needs Node ≥ 20.18.
 
 ```bash
-npm install -g snow-ctl      # installs the `snow` command
-snow context add prod acme   # → https://acme.service-now.com
+npm install -g @parnniti/snow   # installs the `snow` command
+snow context add prod acme      # → https://acme.service-now.com
 snow login
 snow inc list --mine
 ```
