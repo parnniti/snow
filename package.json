@@ -26,7 +26,8 @@
   },
   "files": [
     "bin",
-    "src"
+    "src",
+    "skills"
   ],
   "scripts": {
     "test": "node --test"

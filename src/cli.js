@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { GLOBAL_OPTIONS, orderClause, joinQuery, outputMode, parseSets, readData, splitFields } from './args.js';
 import { BIN, loadConfig, normalizeInstance, resolveContext, saveConfig } from './config.js';
@@ -8,6 +10,7 @@ import { create, get, list, update } from './table.js';
 import { printJSON, printRecord, printTable, printTotalNote } from './output.js';
 import { currentUser } from './user.js';
 import { recordCommands } from './records.js';
+import { AGENTS, bundledSkills, destinations, installSkills, skillStatus, uninstallSkills } from './skills.js';
 
 const log = (msg) => process.stderr.write(`${msg}\n`);
 
@@ -36,6 +39,10 @@ Records
 Generic
   table list|get|create|update TABLE ...             any table via the Table API
   api METHOD PATH [-q k=v]... [-d JSON|@file|-]      raw REST call, JSON out
+
+Agents
+  skills [list] | get NAME | install [NAME...] | uninstall [NAME...]
+                                                     install the bundled agent skill (~/.agents/skills)
 
 Context precedence: -c flag > SNOW_CONTEXT > current context.
 Run "${BIN} <command> -h" for command flags.`;
@@ -249,6 +256,74 @@ The first context added becomes the current one.`,
           return show(await update(ctx, table, id, body()));
         default:
           throw new Error(`unknown subcommand "${sub}"\n\n${commands.table.usage}`);
+      }
+    },
+  },
+
+  skills: {
+    usage: `Usage: ${BIN} skills [list]                       bundled skills and where they are installed
+       ${BIN} skills get NAME [FILE]              print a skill (or one of its files) without installing
+       ${BIN} skills install [NAME...] [--agent claude] [--all-agents] [--local] [--dir DIR] [--force] [--dry-run]
+       ${BIN} skills uninstall [NAME...] [--local] [--dir DIR] [--dry-run]
+
+install copies skills to ~/.agents/skills/<name> (Codex, Cursor, Gemini, Copilot and other
+.agents-compatible agents). --agent claude also links ~/.claude/skills/<name> (Claude Code).
+--local uses ./.agents/skills and ./.claude/skills in the current project; --dir sets the .agents root.
+Re-run install after upgrading ${BIN} to refresh the copies. Directories ${BIN} did not install are
+left alone unless --force. No NAME means every bundled skill.`,
+    options: {
+      agent: { type: 'string', multiple: true },
+      'all-agents': { type: 'boolean' },
+      local: { type: 'boolean' },
+      dir: { type: 'string' },
+      force: { type: 'boolean' },
+      'dry-run': { type: 'boolean' },
+    },
+    async run(_, opts, [sub = 'list', ...names]) {
+      const all = bundledSkills();
+      const dests = destinations({ local: opts.local, dir: opts.dir });
+      const pick = (list) => {
+        if (!list.length) return all;
+        return list.map((n) => {
+          const s = all.find((x) => x.name === n);
+          if (!s) throw new Error(`no bundled skill "${n}" (have: ${all.map((x) => x.name).join(', ')})`);
+          return s;
+        });
+      };
+      const report = (results) => {
+        if (outputMode(opts, 'table') === 'json') return printJSON(results);
+        printTable(results, ['action', 'skill', 'path']);
+        if (results.some((r) => r.action === 'skipped-foreign')) {
+          log(`Some paths exist but were not installed by ${BIN}; left untouched. Use --force to replace them.`);
+          process.exitCode = 1;
+        }
+      };
+      switch (sub) {
+        case 'list': {
+          const rows = all.map((s) => {
+            const st = skillStatus(s, dests);
+            return { name: s.name, canonical: st.canonical, ...st.agents, path: path.join(dests.canonical, s.name), description: s.description };
+          });
+          return outputMode(opts, 'table') === 'json' ? printJSON(rows) : printTable(rows, ['name', 'canonical', ...AGENTS, 'path']);
+        }
+        case 'get': {
+          if (!names[0]) throw new Error(`usage: ${BIN} skills get NAME [FILE]`);
+          const [skill] = pick(names.slice(0, 1));
+          const file = path.resolve(skill.dir, names[1] ?? 'SKILL.md');
+          if (!file.startsWith(skill.dir + path.sep)) throw new Error('FILE must be inside the skill directory');
+          process.stdout.write(fs.readFileSync(file, 'utf8'));
+          return;
+        }
+        case 'install': {
+          const agents = opts['all-agents'] ? AGENTS : [...new Set(opts.agent ?? [])];
+          const bad = agents.filter((a) => !AGENTS.includes(a));
+          if (bad.length) throw new Error(`unsupported --agent ${bad.join(', ')} (supported: ${AGENTS.join(', ')}; ~/.agents/skills covers the rest)`);
+          return report(installSkills(pick(names), { dests, agents, force: opts.force, dryRun: opts['dry-run'] }));
+        }
+        case 'uninstall':
+          return report(uninstallSkills(pick(names), { dests, dryRun: opts['dry-run'] }));
+        default:
+          throw new Error(`unknown subcommand "${sub}"\n\n${commands.skills.usage}`);
       }
     },
   },

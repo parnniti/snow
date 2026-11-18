@@ -104,6 +104,25 @@ curl -H "$(snow token --header)" 'https://acme.service-now.com/api/now/table/inc
 
 `snow api` and `snow table` refuse to send the token to any host other than the context's instance.
 
+## Agent skills
+
+`snow` ships an agent skill, so coding agents know how to use it: the agent login flow, picking the
+context, queries, rules for writes, and what the errors mean.
+
+```bash
+snow skills                          # bundled skills and where they are installed
+snow skills install                  # → ~/.agents/skills/snow (Codex, Cursor, Gemini, Copilot, ...)
+snow skills install --agent claude   # also link ~/.claude/skills/snow (Claude Code)
+snow skills install --local          # this project only: ./.agents/skills, ./.claude/skills
+snow skills get snow                 # print it without installing
+snow skills uninstall
+```
+
+Re-run `snow skills install` after upgrading `snow` to refresh the installed copy. A directory with the same name
+that `snow` did not install is left untouched unless you pass `--force`.
+
+The skill also lives in the repo at `skills/snow/`, so `npx skills add parnniti/snow` works too.
+
 ## Notes
 
 - Results follow your ServiceNow roles and ACLs. `(0 visible of N matching; rows hidden by ACLs)` means
