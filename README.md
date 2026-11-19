@@ -83,8 +83,18 @@ snow inc update INC0010001 -s state=2 --assignee "Jane Doe"
 snow inc comment INC0010001 "Mitigated; monitoring"          # customer-visible comment
 snow inc comment INC0010001 "Root cause: ..." --work-note    # internal work note
 snow chg create -t "Patch DB cluster" --type normal --start "2026-12-01 22:00:00" --end "2026-12-01 23:00:00"
+snow task ls                                 # `ls` works wherever `list` does
+snow task list --long                        # one block per task, summary and details in full
 ```
 
+- **`ritm` and `sctask`** show `summary` and `details` columns taken from the request's catalog variables,
+  because `short_description` on catalog tasks is usually just the template name ("Cloud access task").
+  - `summary`: the `summary` variable, else `short_description`. Use other names with
+    `SNOW_SUMMARY_VARIABLES` (comma-separated, first non-empty wins).
+  - `details`: every non-empty multi-line text answer on the request form, in form order and labelled
+    by question when there is more than one. Each catalog item names its fields differently, so `snow`
+    picks them by type. This costs one extra API call per page.
+- Tables shrink their widest columns to fit the terminal; use `--long` or `get` to read long text in full.
 - **Reads** return display values. Add `--raw` to get stored values (sys_ids, choice numbers) instead.
 - **Writes** send `sysparm_input_display_value=true`, so reference fields take names:
   `--group "Service Desk"`, `-s assigned_to="Jane Doe"`. Choice fields take their stored value, e.g. `-s state=2`.

@@ -1,9 +1,20 @@
 // Task-table commands: incident, change, ritm, sctask. Thin layer over the Table API helpers.
 import { joinQuery, orderClause, outputMode, parseSets, readData, splitFields } from './args.js';
-import { create, get, list, update } from './table.js';
-import { printJSON, printRecord, printTable, printTotalNote } from './output.js';
+import { SYS_ID_RE, create, get, list, update } from './table.js';
+import { printBlocks, printJSON, printRecord, printTable, printTotalNote } from './output.js';
 import { currentUser } from './user.js';
 import { BIN, loadConfig, resolveContext } from './config.js';
+
+// Catalog forms keep what the request is about in variables, not in short_description (which holds the
+// catalog task template name, e.g. "Cloud access task"). On ritm/sctask two virtual columns read them:
+//   summary  the first non-empty of SNOW_SUMMARY_VARIABLES (default "summary"), else short_description
+//   details  every non-empty Multi Line Text answer on the request, in form order. Each catalog item names
+//            its fields differently (additional_detail, dbr_request_details, ad_deployment_note, ...),
+//            so details go by variable type, not name. One extra call per page.
+const SUMMARY_VARS = (process.env.SNOW_SUMMARY_VARIABLES ?? 'summary').split(',').map((s) => s.trim()).filter(Boolean);
+const MULTI_LINE_TEXT = '2'; // item_option_new.type
+// Fields that --long prints in full under each record instead of as one-line columns.
+const LONG_FIELDS = ['summary', 'details', 'short_description', 'description'];
 
 const KINDS = {
   incident: {
@@ -27,14 +38,18 @@ const KINDS = {
   ritm: {
     table: 'sc_req_item',
     aliases: [],
-    listFields: ['number', 'short_description', 'cat_item', 'stage', 'state', 'requested_for', 'assignment_group', 'assigned_to'],
-    first: ['number', 'short_description', 'cat_item', 'stage', 'state', 'request', 'requested_for', 'opened_by', 'assignment_group', 'assigned_to', 'opened_at', 'sys_updated_on', 'description'],
+    listFields: ['number', 'summary', 'details', 'stage', 'state', 'requested_for', 'assigned_to'],
+    first: ['number', 'summary', 'details', 'short_description', 'cat_item', 'stage', 'state', 'request', 'requested_for', 'opened_by', 'assignment_group', 'assigned_to', 'opened_at', 'sys_updated_on', 'description'],
+    varPath: 'variables',
+    ritmId: 'sys_id',
   },
   sctask: {
     table: 'sc_task',
     aliases: ['task'],
-    listFields: ['number', 'short_description', 'state', 'request_item', 'assignment_group', 'assigned_to', 'sys_updated_on'],
-    first: ['number', 'short_description', 'state', 'request_item', 'request', 'assignment_group', 'assigned_to', 'opened_at', 'sys_updated_on', 'description'],
+    listFields: ['number', 'summary', 'details', 'state', 'request_item', 'assigned_to'],
+    first: ['number', 'summary', 'details', 'short_description', 'state', 'request_item', 'request', 'assignment_group', 'assigned_to', 'opened_at', 'sys_updated_on', 'description'],
+    varPath: 'request_item.variables',
+    ritmId: 'request_item.sys_id',
   },
 };
 
@@ -47,15 +62,71 @@ const COMMON_WRITE = {
   data: { type: 'string', short: 'd' },
 };
 
+/**
+ * Expand the virtual columns into the fields the API needs. `fill` folds summary back into one value;
+ * `details` (when asked) is filled afterwards by attachDetails, keyed by the request item sys_id.
+ */
+function virtualRequest(kind, fields) {
+  const wantSummary = Boolean(kind.varPath && SUMMARY_VARS.length && fields.includes('summary'));
+  const wantDetails = Boolean(kind.varPath && fields.includes('details'));
+  if (!wantSummary && !wantDetails) return { apiFields: fields, fill: (r) => r, wantDetails };
+  const summarySrc = SUMMARY_VARS.map((v) => `${kind.varPath}.${v}`);
+  const apiFields = [];
+  for (const f of fields) {
+    if (f === 'summary' && wantSummary) apiFields.push(...summarySrc, 'short_description');
+    else if (f === 'details' && wantDetails) apiFields.push(kind.ritmId);
+    else apiFields.push(f);
+  }
+  const extra = [...new Set(apiFields)].filter((f) => !fields.includes(f) && f !== kind.ritmId);
+  const fill = (r) => {
+    const out = { ...r };
+    if (wantSummary) out.summary = summarySrc.map((s) => r[s]).find(Boolean) || r.short_description || '';
+    for (const s of extra) delete out[s];
+    return out;
+  };
+  return { apiFields: [...new Set(apiFields)], fill, wantDetails };
+}
+
+/** Set row.details from the requests' Multi Line Text answers (one sc_item_option_mtom query for all rows). */
+async function attachDetails(ctx, kind, rows) {
+  const ids = [...new Set(rows.map((r) => r[kind.ritmId]).filter((id) => SYS_ID_RE.test(id || '')))];
+  const byRitm = new Map();
+  if (ids.length) {
+    let answers = [];
+    try {
+      ({ rows: answers } = await list(ctx, 'sc_item_option_mtom', {
+        query: `request_itemIN${ids.join(',')}^sc_item_option.item_option_new.type=${MULTI_LINE_TEXT}^sc_item_option.valueISNOTEMPTY^ORDERBYsc_item_option.item_option_new.order`,
+        fields: ['request_item', 'sc_item_option.item_option_new.question_text', 'sc_item_option.value'],
+        limit: Math.max(100, ids.length * 20),
+        displayValue: false,
+      }));
+    } catch (e) {
+      if (!(e.name === 'ApiError' && e.status === 403)) throw e; // no read access to variables: leave details empty
+    }
+    for (const a of answers) {
+      const v = (a['sc_item_option.value'] || '').replace(/\r\n?/g, '\n').trim();
+      const seen = byRitm.get(a.request_item) ?? [];
+      if (v && !seen.some((x) => x.value === v)) seen.push({ question: a['sc_item_option.item_option_new.question_text'], value: v });
+      byRitm.set(a.request_item, seen);
+    }
+  }
+  for (const r of rows) {
+    const answers = byRitm.get(r[kind.ritmId]) ?? [];
+    r.details = answers.length === 1 ? answers[0].value : answers.map((x) => `${x.question}:\n${x.value}`).join('\n\n');
+    delete r[kind.ritmId];
+  }
+}
+
 function usage(name, k) {
   const createFlags = k.create ? Object.keys(k.create.flags).map((f) => `[--${f} V]`).join(' ') : '';
   return `Usage:
-  ${BIN} ${name} list [--mine] [--opened-by-me] [--group NAME] [--all] [-q QUERY] [-f FIELDS] [-l N] [--offset N] [--order [-]FIELD] [--raw]
+  ${BIN} ${name} list [--mine] [--opened-by-me] [--group NAME] [--all] [-q QUERY] [-f FIELDS] [-l N] [--offset N] [--order [-]FIELD] [--long] [--raw]
   ${BIN} ${name} get <NUMBER|sys_id> [-f FIELDS] [--all-fields] [--raw]
 ${k.create ? `  ${BIN} ${name} create -t TITLE [--description T] [--group NAME] [--assignee NAME] ${createFlags} [-s k=v]... [-d JSON]\n` : ''}  ${BIN} ${name} update <NUMBER|sys_id> [-t TITLE] [--description T] [--group NAME] [--assignee NAME] [-s k=v]... [-d JSON]
   ${BIN} ${name} comment <NUMBER|sys_id> <TEXT> [--work-note]
 
 Table: ${k.table}. Lists show active records, newest update first, unless --all / --order.
+${k.varPath ? `Columns "summary" and "details" come from the request's catalog variables (summary; additional_detail).\n` : ''}--long prints each record as a block with long text (summary, details, description) in full.
 Writes take display values for reference fields (e.g. --group "DevOps", --assignee "Jane Doe").
 Global: -c CONTEXT, -o table|json`;
 }
@@ -87,6 +158,7 @@ function makeCommand(name, kind) {
       raw: { type: 'boolean' },
       'all-fields': { type: 'boolean' },
       'work-note': { type: 'boolean' },
+      long: { type: 'boolean' },
       ...COMMON_WRITE,
       ...createOpts,
     },
@@ -106,15 +178,34 @@ function makeCommand(name, kind) {
             orderClause(opts.order || '-sys_updated_on'),
           );
           const fields = splitFields(opts.fields) || kind.listFields;
-          const { rows, total } = await list(ctx, kind.table, { query, fields, limit: opts.limit ?? 20, offset: opts.offset, displayValue });
+          const { apiFields, fill, wantDetails } = virtualRequest(kind, fields);
+          const { rows: raw, total } = await list(ctx, kind.table, { query, fields: apiFields, limit: opts.limit ?? 20, offset: opts.offset, displayValue });
+          const rows = raw.map(fill);
+          if (wantDetails) await attachDetails(ctx, kind, rows);
           if (outputMode(opts, 'table') === 'json') return printJSON(rows);
-          printTable(rows, fields);
+          if (opts.long) printBlocks(rows, fields, LONG_FIELDS);
+          else printTable(rows, fields);
           printTotalNote(rows.length, total);
           return;
         }
         case 'get': {
           if (!args[0]) throw new Error(`usage: ${BIN} ${name} get <NUMBER|sys_id>`);
-          const rec = await get(ctx, kind.table, args[0], { fields: splitFields(opts.fields), displayValue });
+          const asked = splitFields(opts.fields);
+          let rec;
+          if (asked) {
+            const { apiFields, fill, wantDetails } = virtualRequest(kind, asked);
+            rec = fill(await get(ctx, kind.table, args[0], { fields: apiFields, displayValue }));
+            if (wantDetails) await attachDetails(ctx, kind, [rec]);
+          } else {
+            rec = await get(ctx, kind.table, args[0], { displayValue });
+            if (kind.varPath && rec.sys_id) {
+              const { apiFields, fill } = virtualRequest(kind, ['summary', 'details']);
+              const extra = fill(await get(ctx, kind.table, rec.sys_id, { fields: apiFields, displayValue }));
+              await attachDetails(ctx, kind, [extra]);
+              if (extra.summary && extra.summary !== rec.short_description) rec.summary = extra.summary;
+              if (extra.details) rec.details = extra.details;
+            }
+          }
           return outputMode(opts, 'table') === 'json' ? printJSON(rec) : printRecord(rec, { first: kind.first, all: opts['all-fields'] });
         }
         case 'create': {

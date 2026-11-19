@@ -40,6 +40,7 @@ snow -c prod inc list                          # active, newest update first, 20
 snow -c prod inc list --mine                   # assigned to me
 snow -c prod inc list --opened-by-me --all     # include closed
 snow -c prod task list -q 'assignment_group=javascript:getMyGroups()'   # "assigned to my groups"
+snow -c prod task list --long                  # full summary + details per task
 snow -c prod chg list --group "Network" -l 50
 snow -c prod ritm get <NUMBER>                 # any numbering scheme, or a 32-char sys_id
 snow -c prod table list <table> -q '<encoded query>' -f field1,field2
@@ -49,9 +50,12 @@ snow -c prod api GET /api/now/<path> -q sysparm_limit=5
 - Add `-o json` whenever you will parse the result.
 - Reads return display values; `--raw` returns stored values (sys_ids, choice numbers).
 - Filters use ServiceNow encoded queries. See [references/encoded-queries.md](references/encoded-queries.md).
+- `ritm`/`sctask` lists show `summary` (the `summary` variable) and `details` (all multi-line answers on the
+  request form). `short_description` there is only the task template name. Read `summary`/`details`
+  (`--long` or `get` for full text) before reporting what a task is about.
 
 Command map: `incident`/`inc` → incident, `change`/`chg` → change_request, `ritm` → sc_req_item,
-`sctask`/`task` → sc_task. All have list, get, update, comment; incident and change also have create.
+`sctask`/`task` → sc_task. All have list (alias `ls`), get, update, comment; incident and change also have create.
 
 ## Write
 

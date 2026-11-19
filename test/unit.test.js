@@ -50,3 +50,12 @@ test('-s key=value splits on the first "=" only', () => {
   assert.deepEqual(parseSets(['q=a=b', 'empty=']), { q: 'a=b', empty: '' });
   assert.throws(() => parseSets(['novalue']), /key=value/);
 });
+
+test('tables fit the terminal by shrinking the widest columns, never below the header', async () => {
+  const { fitWidths } = await import('../src/output.js');
+  const w = fitWidths([13, 60, 60, 16], ['number', 'summary', 'details', 'state'], 80);
+  assert.equal(w.reduce((a, b) => a + b, 0) + 2 * 3, 80);
+  assert.deepEqual([w[0], w[3]], [13, 16]); // narrow columns untouched
+  assert.ok(Math.abs(w[1] - w[2]) <= 1); // the wide ones shrink evenly
+  assert.deepEqual(fitWidths([10, 10], ['number', 'state'], 5), [6, 6]); // floor = max(header, 6)
+});

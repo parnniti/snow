@@ -354,6 +354,7 @@ export async function main(argv) {
     return;
   }
   positionals.splice(positionals.indexOf(name), 1);
+  if (name !== 'api' && positionals[0] === 'ls') positionals[0] = 'list'; // `snow inc ls`, `snow context ls`, ...
   await cmd.run(null, values, positionals);
 }
 
