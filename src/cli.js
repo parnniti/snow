@@ -11,6 +11,8 @@ import { printJSON, printRecord, printTable, printTotalNote } from './output.js'
 import { currentUser } from './user.js';
 import { recordCommands } from './records.js';
 import { AGENTS, bundledSkills, destinations, installSkills, skillStatus, uninstallSkills } from './skills.js';
+import { PKG, compareVersions, installKind, latestVersion, npmInstallGlobal } from './update.js';
+import { spawnSync } from 'node:child_process';
 
 const log = (msg) => process.stderr.write(`${msg}\n`);
 
@@ -43,6 +45,8 @@ Generic
 Agents
   skills [list] | get NAME | install [NAME...] | uninstall [NAME...]
                                                      install the bundled agent skill (~/.agents/skills)
+  update [--check]                                   upgrade ${BIN} from npm and refresh installed skills (alias: upgrade)
+  version                                            print the installed version
 
 Context precedence: -c flag > SNOW_CONTEXT > current context.
 Run "${BIN} <command> -h" for command flags.`;
@@ -260,6 +264,54 @@ The first context added becomes the current one.`,
     },
   },
 
+  update: {
+    usage: `Usage: ${BIN} update [--check]
+Checks npm for a newer ${PKG.name}, runs "npm install -g ${PKG.name}@<latest>", then re-runs
+"${BIN} skills install" for skills you already installed (same agents), so they match the new version.
+--check only reports whether an update exists (exit 0 either way).
+Copies installed with npm link or from a git checkout are not touched: update those with git pull.`,
+    options: { check: { type: 'boolean' } },
+    async run(_, opts) {
+      const current = PKG.version;
+      const latest = await latestVersion();
+      if (compareVersions(latest, current) <= 0) {
+        log(`${BIN} ${current} is up to date.`);
+        return;
+      }
+      log(`${BIN} ${current} → ${latest} available.`);
+      if (opts.check) return;
+      const where = installKind();
+      if (where.kind !== 'global') {
+        throw new Error(
+          `this copy is not a global npm install (${where.kind}: ${where.root}); ` +
+            (where.kind === 'git' ? 'run git pull there' : `run: npm install -g ${PKG.name}@latest`),
+        );
+      }
+      // Remember which skills (and agent links) were installed before the files change under us.
+      const dests = destinations();
+      const installed = bundledSkills()
+        .map((s) => ({ name: s.name, st: skillStatus(s, dests) }))
+        .filter((x) => x.st.canonical === 'installed' || x.st.canonical === 'outdated');
+      npmInstallGlobal(latest);
+      if (installed.length) {
+        const agents = [...new Set(installed.flatMap((x) => Object.entries(x.st.agents).filter(([, v]) => v === 'linked').map(([a]) => a)))];
+        // Run the NEW code: same bin path, now pointing at the upgraded package.
+        const args = [process.argv[1], 'skills', 'install', ...installed.map((x) => x.name), ...agents.flatMap((a) => ['--agent', a])];
+        const r = spawnSync(process.execPath, args, { stdio: 'inherit' });
+        if (r.status !== 0) log(`skills refresh failed; run: ${BIN} skills install`);
+      }
+      log(`Updated ${BIN} to ${latest}.`);
+    },
+  },
+
+  version: {
+    usage: `Usage: ${BIN} version`,
+    options: {},
+    async run() {
+      process.stdout.write(`${PKG.version}\n`);
+    },
+  },
+
   skills: {
     usage: `Usage: ${BIN} skills [list]                       bundled skills and where they are installed
        ${BIN} skills get NAME [FILE]              print a skill (or one of its files) without installing
@@ -330,6 +382,7 @@ left alone unless --force. No NAME means every bundled skill.`,
 
   ...recordCommands(),
 };
+commands.upgrade = commands.update;
 
 export async function main(argv) {
   // Pass 1: find the command word (global flags may precede it).

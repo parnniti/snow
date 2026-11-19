@@ -59,3 +59,11 @@ test('tables fit the terminal by shrinking the widest columns, never below the h
   assert.ok(Math.abs(w[1] - w[2]) <= 1); // the wide ones shrink evenly
   assert.deepEqual(fitWidths([10, 10], ['number', 'state'], 5), [6, 6]); // floor = max(header, 6)
 });
+
+test('update compares versions numerically, releases above pre-releases', async () => {
+  const { compareVersions } = await import('../src/update.js');
+  assert.equal(compareVersions('0.10.0', '0.9.9'), 1);
+  assert.equal(compareVersions('0.2.0', '0.2.0'), 0);
+  assert.equal(compareVersions('0.2.0', '0.3.0-beta.1'), -1);
+  assert.equal(compareVersions('1.0.0', '1.0.0-rc.1'), 1);
+});

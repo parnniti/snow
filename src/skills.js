@@ -8,15 +8,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PKG } from './update.js';
 
 const BUNDLE_DIR = fileURLToPath(new URL('../skills/', import.meta.url));
 const MARKER = '.snow-skill.json';
 export const AGENTS = ['claude'];
-
-function packageVersion() {
-  const pkg = JSON.parse(fs.readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'));
-  return pkg.version;
-}
 
 export function bundledSkills(bundleDir = BUNDLE_DIR) {
   return fs
@@ -98,7 +94,7 @@ export function installSkills(skills, { dests, agents = [], force = false, dryRu
   const results = [];
   const WOULD = { installed: 'would-install', updated: 'would-update', linked: 'would-link' };
   const record = (skill, p, action) => results.push({ skill, path: p, action: (dryRun && WOULD[action]) || action });
-  const version = packageVersion();
+  const version = PKG.version;
   for (const skill of skills) {
     const dst = path.join(dests.canonical, skill.name);
     const info = inspect(dst);

@@ -128,10 +128,20 @@ snow skills get snow                 # print it without installing
 snow skills uninstall
 ```
 
-Re-run `snow skills install` after upgrading `snow` to refresh the installed copy. A directory with the same name
+`snow update` refreshes the installed copy for you. After a manual upgrade, re-run `snow skills install`. A directory with the same name
 that `snow` did not install is left untouched unless you pass `--force`.
 
 The skill also lives in the repo at `skills/snow/`, so `npx skills add parnniti/snow` works too.
+
+## Updating
+
+```bash
+snow update           # install the latest @parnniti/snow from npm, then refresh installed agent skills
+snow update --check   # only report whether a newer version exists
+snow version
+```
+
+`snow update` only works for global npm installs. For a git checkout or `npm link`, run `git pull` instead.
 
 ## Notes
 
