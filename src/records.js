@@ -49,10 +49,12 @@ const KINDS = {
   sctask: {
     table: 'sc_task',
     aliases: ['task'],
-    listFields: ['number', 'summary', 'details', 'state', 'request_item', 'assigned_to'],
-    first: ['number', 'summary', 'details', 'short_description', 'state', 'request_item', 'request', 'assignment_group', 'assigned_to', 'opened_at', 'sys_updated_on', 'description'],
+    listFields: ['number', 'summary', 'details', 'requester', 'state', 'request_item', 'assigned_to'],
+    first: ['number', 'summary', 'details', 'short_description', 'requester', 'state', 'request_item', 'request', 'assignment_group', 'assigned_to', 'opened_at', 'sys_updated_on', 'description'],
     varPath: 'request_item.variables',
     ritmId: 'request_item.sys_id',
+    // Short column names for dot-walked fields.
+    columns: { requester: 'request_item.requested_for' },
   },
 };
 
@@ -66,24 +68,28 @@ const COMMON_WRITE = {
 };
 
 /**
- * Expand the virtual columns into the fields the API needs. `fill` folds summary back into one value;
- * `details` (when asked) is filled afterwards by attachDetails, keyed by the request item sys_id.
+ * Expand the virtual columns into the fields the API needs. `fill` folds summary and column aliases
+ * (kind.columns) back into one value each; `details` (when asked) is filled afterwards by
+ * attachDetails, keyed by the request item sys_id.
  */
 function virtualRequest(kind, fields) {
   const wantSummary = Boolean(kind.varPath && SUMMARY_VARS.length && fields.includes('summary'));
   const wantDetails = Boolean(kind.varPath && fields.includes('details'));
-  if (!wantSummary && !wantDetails) return { apiFields: fields, fill: (r) => r, wantDetails };
+  const aliases = fields.filter((f) => kind.columns?.[f]);
+  if (!wantSummary && !wantDetails && !aliases.length) return { apiFields: fields, fill: (r) => r, wantDetails };
   const summarySrc = SUMMARY_VARS.map((v) => `${kind.varPath}.${v}`);
   const apiFields = [];
   for (const f of fields) {
     if (f === 'summary' && wantSummary) apiFields.push(...summarySrc, 'short_description');
     else if (f === 'details' && wantDetails) apiFields.push(kind.ritmId);
+    else if (aliases.includes(f)) apiFields.push(kind.columns[f]);
     else apiFields.push(f);
   }
   const extra = [...new Set(apiFields)].filter((f) => !fields.includes(f) && f !== kind.ritmId);
   const fill = (r) => {
     const out = { ...r };
     if (wantSummary) out.summary = summarySrc.map((s) => r[s]).find(Boolean) || r.short_description || '';
+    for (const f of aliases) out[f] = r[kind.columns[f]] ?? '';
     for (const s of extra) delete out[s];
     return out;
   };
@@ -268,10 +274,12 @@ function makeCommand(name, kind) {
           let ritm;
           const journals = [loadJournal(ctx, kind.table, rec.sys_id, rec.number)];
           if (kind.varPath) {
-            const { apiFields, fill } = virtualRequest(kind, ['summary']);
+            const columns = Object.keys(kind.columns ?? {});
+            const { apiFields, fill } = virtualRequest(kind, ['summary', ...columns]);
             const extra = await get(ctx, kind.table, rec.sys_id, { fields: [...apiFields, kind.ritmId], displayValue });
-            const summary = fill(extra).summary;
-            if (summary && summary !== rec.short_description) rec.summary = summary;
+            const filled = fill(extra);
+            if (filled.summary && filled.summary !== rec.short_description) rec.summary = filled.summary;
+            for (const c of columns) if (filled[c]) rec[c] = filled[c];
             ritm = { sysId: extra[kind.ritmId], number: kind.table === 'sc_req_item' ? rec.number : rec.request_item };
             if (SYS_ID_RE.test(ritm.sysId || '')) {
               if (kind.table !== 'sc_req_item') journals.push(loadJournal(ctx, 'sc_req_item', ritm.sysId, ritm.number));
