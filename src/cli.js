@@ -11,7 +11,7 @@ import { printJSON, printRecord, printTable, printTotalNote } from './output.js'
 import { currentUser } from './user.js';
 import { recordCommands } from './records.js';
 import { AGENTS, bundledSkills, destinations, installSkills, skillStatus, uninstallSkills } from './skills.js';
-import { PKG, compareVersions, installKind, latestVersion, npmInstallGlobal } from './update.js';
+import { PKG, changelogSections, compareVersions, installKind, latestVersion, npmInstallGlobal } from './update.js';
 import { spawnSync } from 'node:child_process';
 
 const log = (msg) => process.stderr.write(`${msg}\n`);
@@ -47,6 +47,7 @@ Agents
                                                      install the bundled agent skill (~/.agents/skills)
   update [--check]                                   upgrade ${BIN} from npm and refresh installed skills (alias: upgrade)
   version                                            print the installed version
+  changelog [VERSION] [--since VERSION]              what changed in each release
 
 Context precedence: -c flag > SNOW_CONTEXT > current context.
 Run "${BIN} <command> -h" for command flags.`;
@@ -300,7 +301,9 @@ Copies installed with npm link or from a git checkout are not touched: update th
         const r = spawnSync(process.execPath, args, { stdio: 'inherit' });
         if (r.status !== 0) log(`skills refresh failed; run: ${BIN} skills install`);
       }
-      log(`Updated ${BIN} to ${latest}.`);
+      log(`Updated ${BIN} to ${latest}. What changed:\n`);
+      // The NEW package's changelog, limited to versions after the one we came from.
+      spawnSync(process.execPath, [process.argv[1], 'changelog', '--since', current], { stdio: 'inherit' });
     },
   },
 
@@ -309,6 +312,28 @@ Copies installed with npm link or from a git checkout are not touched: update th
     options: {},
     async run() {
       process.stdout.write(`${PKG.version}\n`);
+    },
+  },
+
+  changelog: {
+    usage: `Usage: ${BIN} changelog                  every release, newest first
+       ${BIN} changelog VERSION          one release, e.g. ${BIN} changelog 0.4.0
+       ${BIN} changelog --since VERSION  releases newer than VERSION (what ${BIN} update prints)
+Reads the CHANGELOG.md shipped with the installed ${BIN}.`,
+    options: { since: { type: 'string' } },
+    async run(_, opts, [version]) {
+      let sections = changelogSections();
+      if (version) {
+        sections = sections.filter((s) => s.version === version.replace(/^v/, ''));
+        if (!sections.length) throw new Error(`no changelog entry for ${version} (have: ${changelogSections().map((s) => s.version).join(', ')})`);
+      }
+      if (opts.since) sections = sections.filter((s) => compareVersions(s.version, opts.since.replace(/^v/, '')) > 0);
+      if (outputMode(opts, 'table') === 'json') return printJSON(sections);
+      if (!sections.length) {
+        log(`no changes after ${opts.since}`);
+        return;
+      }
+      process.stdout.write(sections.map((s) => `${s.title}\n\n${s.body}`).join('\n\n') + '\n');
     },
   },
 

@@ -152,7 +152,8 @@ snow version
 
 `snow update` only works for global npm installs. For a git checkout or `npm link`, run `git pull` instead.
 From 0.1.0 or 0.2.0, which have no `update` command, run `npm install -g @parnniti/snow@latest` once.
-[CHANGELOG.md](CHANGELOG.md) lists what changed in each version.
+[CHANGELOG.md](CHANGELOG.md) lists what changed in each version. `snow changelog` prints it (`snow changelog 0.4.0`
+for one release, `--since VERSION` for everything newer), and `snow update` prints the new entries after upgrading.
 
 ## Notes
 

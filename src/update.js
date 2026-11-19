@@ -7,6 +7,20 @@ import { fileURLToPath } from 'node:url';
 const PKG_ROOT = fileURLToPath(new URL('..', import.meta.url));
 export const PKG = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8'));
 
+/**
+ * CHANGELOG.md (shipped in the package) split into { version, title, body } per "## x.y.z - ..." section,
+ * newest first as written. `text` defaults to the bundled file.
+ */
+export function changelogSections(text = fs.readFileSync(path.join(PKG_ROOT, 'CHANGELOG.md'), 'utf8')) {
+  return text
+    .split(/^## /m)
+    .slice(1)
+    .map((chunk) => {
+      const [title, ...rest] = chunk.split('\n');
+      return { version: title.trim().split(/\s+/)[0], title: `## ${title.trim()}`, body: rest.join('\n').trim() };
+    });
+}
+
 /** -1 / 0 / 1 for plain x.y.z versions (pre-release tags compare as older than the release). */
 export function compareVersions(a, b) {
   const parse = (v) => {

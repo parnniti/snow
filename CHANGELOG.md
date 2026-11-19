@@ -6,6 +6,13 @@ version is 0.x, a minor bump may change output or defaults.
 Upgrade with `snow update` (0.4.0 and later). From 0.1.0 or 0.2.0, which have no `update` command, run
 `npm install -g @parnniti/snow@latest` once.
 
+## 0.6.0 - 2026-11-20
+
+### Added
+- `snow changelog` prints this changelog. `snow changelog 0.4.0` prints one release, and
+  `--since VERSION` prints the releases after VERSION. `-o json` gives the sections as data.
+- After upgrading, `snow update` prints what changed since the version you had.
+
 ## 0.5.0 - 2026-11-20
 
 ### Added

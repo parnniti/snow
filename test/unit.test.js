@@ -67,3 +67,10 @@ test('update compares versions numerically, releases above pre-releases', async 
   assert.equal(compareVersions('0.2.0', '0.3.0-beta.1'), -1);
   assert.equal(compareVersions('1.0.0', '1.0.0-rc.1'), 1);
 });
+
+test('changelog splits into release sections; the bundled one covers the installed version', async () => {
+  const { changelogSections, PKG } = await import('../src/update.js');
+  const s = changelogSections('# Changelog\nintro\n\n## 0.2.0 - 2026-01-02\n\n- b\n\n## 0.1.0 - never published\n\n- a\n');
+  assert.deepEqual(s.map((x) => [x.version, x.body]), [['0.2.0', '- b'], ['0.1.0', '- a']]);
+  assert.equal(changelogSections()[0].version, PKG.version, 'CHANGELOG.md must start with the package version');
+});
