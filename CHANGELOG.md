@@ -6,6 +6,26 @@ version is 0.x, a minor bump may change output or defaults.
 Upgrade with `snow update` (0.4.0 and later). From 0.1.0 or 0.2.0, which have no `update` command, run
 `npm install -g @parnniti/snow@latest` once.
 
+## 0.7.0 - 2026-11-20
+
+### Added
+- Ticket work on every record type:
+  - `assign` (to me, `--to NAME`, `--group NAME`) and `state NUM "<label>" [-m note]`.
+  - `close` (`resolve` on incidents, with `--code` and `-m`; `--as` for another closed state).
+  - `attach FILE...`, `attachments [--out DIR]`, `detach NAME --yes` and `delete --yes`.
+- `snow approval ls | approve | reject`: approvals waiting on you (alias `approvals`).
+- `snow catalog ls | get | order`: browse items, see their form, raise a request with variables
+  (`--dry-run`, `--for USER`, `--force`).
+- `table delete TABLE ID --yes`.
+- `get` lists attachments (catalog tasks also show the request item's), and `-o json` adds the stored
+  value of each form answer (`form[].raw`).
+
+### Changed
+- Writes check that ServiceNow applied what was sent, because it silently ignores labels and names it
+  cannot map. `state`, `assign`, `close` and `approve` fail; `create` and `update` warn.
+- `--order -field` works (it used to be read as an unknown flag), and argument errors print one line
+  instead of a stack trace.
+
 ## 0.6.0 - 2026-11-20
 
 ### Added

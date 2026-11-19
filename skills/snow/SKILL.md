@@ -60,27 +60,43 @@ snow -c prod api GET /api/now/<path> -q sysparm_limit=5
   (`--long` or `get` for full text) before reporting what a task is about.
 
 Command map: `incident`/`inc` → incident, `change`/`chg` → change_request, `ritm` → sc_req_item,
-`sctask`/`task` → sc_task. All have list (alias `ls`), get, update, comment; incident and change also have create.
+`sctask`/`task` → sc_task. All have list (alias `ls`), get, update, comment, assign, state, attach,
+attachments, detach, delete; incident and change also have create; all but incident have close
+(incident: `resolve`).
 
 ## Write
 
-Creating, updating, and commenting change shared records that other people see and that may notify
-requesters. Before any write:
+Creating, updating, commenting, assigning, closing, approving and ordering change shared records
+that other people see and that may notify requesters. Before any write:
 
 1. Confirm the context (`-c`) and the exact record with the user.
-2. Show the fields you will send and get an explicit go-ahead.
+2. Show the command and fields you will send and get an explicit go-ahead. For `catalog order`, run it
+   with `--dry-run` first and show the payload.
+3. `delete`, `detach` and `table delete` need `--yes`. Pass it only after the user confirmed that record.
 
 ```bash
-snow -c prod inc create -t "Short description" --description "..." --group "Service Desk" --urgency 2 --impact 2
-snow -c prod inc update <NUMBER> -s state=2 --assignee "Jane Doe"
+snow -c prod task assign <NUMBER>                          # to me (or --to "Jane Doe", --group "Service Desk")
+snow -c prod task state <NUMBER> "Work in Progress" -m "Started"
+snow -c prod task close <NUMBER> -m "Done: <what was done>"  # Closed Complete (--as "Closed Incomplete")
+snow -c prod inc resolve <NUMBER> --code "<close code label>" -m "<resolution notes>"
 snow -c prod task comment <NUMBER> "Customer-visible comment"
 snow -c prod task comment <NUMBER> "Internal note" --work-note
+snow -c prod task attach <NUMBER> evidence.png report.pdf
+snow -c prod task attachments <NUMBER> [--out DIR]
+snow -c prod approval ls                                   # waiting on me
+snow -c prod approval approve <NUMBER> -m "OK"            # reject needs -m REASON
+snow -c prod catalog ls "<search>"; snow -c prod catalog get "<item name>"
+snow -c prod catalog order "<item name>" -s var=value ... --dry-run
+snow -c prod inc create -t "Short description" --description "..." --group "Service Desk" --urgency 2 --impact 2
 snow -c prod table update <table> <sys_id> -d '{"field":"value"}'
 ```
 
-- Reference fields take display names (`--group "Service Desk"`, `-s assigned_to="Jane Doe"`).
-- Choice fields take stored values. Look them up instead of guessing:
-  `snow -c prod table list sys_choice -q 'name=incident^element=state^inactive=false' -f value,label --raw`
+- Reference and choice fields take display values (`--group "Service Desk"`, `-s state="Closed Complete"`).
+  ServiceNow silently ignores values it cannot map. `state`, `assign`, `close` and `approve` then
+  fail with "did not apply"; `create`/`update` print a warning. Fix the value to the exact label the form shows.
+- `catalog order` checks mandatory variables and choice values first; the API itself does not. Reference
+  variables take a name/email for users and groups, other tables need sys_ids. Copy them from an earlier
+  request: `snow ritm get <SR> -o json` → `form[].raw`.
 
 ## Errors
 

@@ -110,6 +110,53 @@ snow task list --long                        # one block per task, summary and d
 - **Lookup** takes a record number in any numbering format, or a 32-character sys_id.
 - Add `-o json` to any command for machine-readable output.
 
+## Working tickets
+
+```bash
+snow task assign SCTASK0010368                          # to me; --to "Jane Doe" / --group "Service Desk"
+snow task state SCTASK0010368 "Work in Progress" -m "Started"
+snow task close SCTASK0010368 -m "Done"                 # Closed Complete; --as "Closed Incomplete"
+snow inc resolve INC0010001 --code "Solved (Permanently)" -m "Restarted the pod"
+snow chg close CHG0030001 --code "Successful" -m "Implemented as planned"
+snow task attach SCTASK0010368 evidence.png logs.txt    # upload files
+snow task attachments SCTASK0010368 --out ./evidence    # list, download
+snow task detach SCTASK0010368 logs.txt --yes
+snow inc delete INC0010001 --yes
+```
+
+- **Labels work:** `state`, `close`, `assign` and `-s field=value` take what the form shows ("Work in
+  Progress", "Jane Doe"). ServiceNow silently ignores a value it cannot map, so `snow` compares the
+  result with what it sent. `state`/`assign`/`close` fail with "did not apply"; `create`/`update` warn.
+- **People and groups** are looked up first and must match exactly one active record, so a write never
+  lands on the wrong "John Smith".
+- **`delete`, `detach` and `table delete`** refuse to run without `--yes`.
+- **Attachments:** downloads are cached in `~/.cache/snow/attachments/`. `get` lists a record's
+  attachments (for catalog tasks, also the request item's).
+
+## Approvals
+
+```bash
+snow approval ls                                  # waiting on you (--all for every state)
+snow approval approve SR-20261119-024 -m "OK"
+snow approval reject CHG0030001 -m "Missing backout plan"
+```
+
+## Service Catalog
+
+```bash
+snow catalog ls cloud                             # find items
+snow catalog get "Cloud Access"                   # the form: variables, types, mandatory, choices
+snow catalog order "Cloud Access" -s summary="Read access to X" -s duration=Permanent ... --dry-run
+snow catalog order "Cloud Access" ... [--for "jane.doe@example.com"]
+```
+
+- **Checks before ordering:** `order` checks mandatory variables and choice values first, because the
+  catalog API accepts incomplete orders. `--force` orders anyway, for fields that are only mandatory in
+  some cases. `--dry-run` prints the payload without ordering.
+- **Values:** select boxes take a value or a label. User and group references take a name or email.
+  Other references and list collectors need sys_ids. Copy them from an earlier request with
+  `snow ritm get SR-... -o json` (`form[].raw`).
+
 ## Generic access
 
 ```bash

@@ -28,7 +28,8 @@ async function send(url, method, token, body, headers) {
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       ...headers,
     },
-    body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
+    // Buffers go as-is (attachment uploads; the caller sets Content-Type), strings as-is, objects as JSON.
+    body: body === undefined ? undefined : Buffer.isBuffer(body) || typeof body === 'string' ? body : JSON.stringify(body),
   });
 }
 

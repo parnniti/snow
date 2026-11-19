@@ -6,7 +6,10 @@ import { BIN, loadConfig, normalizeInstance, resolveContext, saveConfig } from '
 import { CLIENT_ID, LoginRequired, finishLogin, getSession, openBrowser, promptCode, startLogin } from './auth.js';
 import { deleteTokens, loadTokens, storeName } from './tokenstore.js';
 import { request } from './http.js';
-import { create, get, list, update } from './table.js';
+import { create, get, list, remove, unappliedFields, update } from './table.js';
+import { decide, findApproval, listApprovals } from './approvals.js';
+import { buildOrder, getItem, orderNow, searchItems } from './catalog.js';
+import { findOne } from './records.js';
 import { printJSON, printRecord, printTable, printTotalNote } from './output.js';
 import { currentUser } from './user.js';
 import { recordCommands } from './records.js';
@@ -32,14 +35,18 @@ Auth
 Contexts
   context [list] | current | use NAME | add NAME INSTANCE | remove NAME
 
-Records
-  incident|inc   list | get | create | update | comment
-  change|chg     list | get | create | update | comment
-  ritm           list | get | update | comment
-  sctask|task    list | get | update | comment
+Records (every type: list | get | update | comment | assign | state | attach | attachments | detach | delete)
+  incident|inc   + create, resolve/close
+  change|chg     + create, close
+  ritm           + close
+  sctask|task    + close
+
+Approvals and catalog
+  approval ls | approve NUM [-m TEXT] | reject NUM -m TEXT   approvals waiting on you (alias: approvals)
+  catalog ls [SEARCH] | get ITEM | order ITEM -s var=value   browse items, raise a request
 
 Generic
-  table list|get|create|update TABLE ...             any table via the Table API
+  table list|get|create|update|delete TABLE ...      any table via the Table API
   api METHOD PATH [-q k=v]... [-d JSON|@file|-]      raw REST call, JSON out
 
 Agents
@@ -219,7 +226,9 @@ The first context added becomes the current one.`,
   ${BIN} table get TABLE <sys_id|NUMBER> [-f FIELDS] [--all-fields] [--raw]
   ${BIN} table create TABLE [-s k=v]... [-d JSON]
   ${BIN} table update TABLE <sys_id|NUMBER> [-s k=v]... [-d JSON]
---raw returns stored values (sys_ids, choice values) instead of display values.`,
+  ${BIN} table delete TABLE <sys_id|NUMBER> --yes
+--raw returns stored values (sys_ids, choice values) instead of display values.
+Writes take display values for reference and choice fields and warn when ServiceNow ignored one.`,
     options: {
       query: { type: 'string', short: 'q' },
       fields: { type: 'string', short: 'f' },
@@ -230,6 +239,7 @@ The first context added becomes the current one.`,
       'all-fields': { type: 'boolean' },
       set: { type: 'string', short: 's', multiple: true },
       data: { type: 'string', short: 'd' },
+      yes: { type: 'boolean', short: 'y' },
     },
     async run(_, opts, [sub, table, id]) {
       if (!sub || !table) throw new Error(commands.table.usage);
@@ -254,11 +264,24 @@ The first context added becomes the current one.`,
         case 'get':
           if (!id) throw new Error(`usage: ${BIN} table get TABLE <sys_id|NUMBER>`);
           return show(await get(ctx, table, id, { fields, displayValue }));
-        case 'create':
-          return show(await create(ctx, table, body()));
-        case 'update':
+        case 'create': {
+          const sent = body();
+          const rec = await create(ctx, table, sent);
+          for (const u of unappliedFields(sent, rec)) log(`warning: ${u.field} is "${u.now}" after the write (sent "${u.sent}"); ServiceNow did not apply it`);
+          return show(rec);
+        }
+        case 'update': {
           if (!id) throw new Error(`usage: ${BIN} table update TABLE <sys_id|NUMBER> -s k=v`);
-          return show(await update(ctx, table, id, body()));
+          const sent = body();
+          const rec = await update(ctx, table, id, sent);
+          for (const u of unappliedFields(sent, rec)) log(`warning: ${u.field} is "${u.now}" after the write (sent "${u.sent}"); ServiceNow did not apply it`);
+          return show(rec);
+        }
+        case 'delete':
+          if (!id) throw new Error(`usage: ${BIN} table delete TABLE <sys_id|NUMBER> --yes`);
+          if (!opts.yes) throw new Error(`this permanently deletes ${id} from ${table}; re-run with --yes`);
+          log(`deleted ${id} from ${table} (${await remove(ctx, table, id)})`);
+          return;
         default:
           throw new Error(`unknown subcommand "${sub}"\n\n${commands.table.usage}`);
       }
@@ -405,11 +428,102 @@ left alone unless --force. No NAME means every bundled skill.`,
     },
   },
 
+  approval: {
+    usage: `Usage: ${BIN} approval ls [--all] [-l N]              approvals waiting on you (--all: every state)
+       ${BIN} approval approve <NUMBER|approval sys_id> [-m COMMENT]
+       ${BIN} approval reject  <NUMBER|approval sys_id> -m REASON
+NUMBER is the record being approved (SR-..., CHG..., REQ...). Alias: approvals.`,
+    options: { all: { type: 'boolean' }, limit: { type: 'string', short: 'l' }, message: { type: 'string', short: 'm' } },
+    async run(_, opts, [sub = 'list', ref]) {
+      const ctx = ctxOf(opts);
+      const me = await currentUser(ctx);
+      switch (sub) {
+        case 'list': {
+          const rows = await listApprovals(ctx, me, { all: opts.all, limit: opts.limit ?? 50 });
+          if (outputMode(opts, 'table') === 'json') return printJSON(rows);
+          if (!rows.length) return log(opts.all ? 'no approvals' : 'nothing waiting on you');
+          return printTable(rows, ['for', 'what', 'state', 'requested', 'due']);
+        }
+        case 'approve':
+        case 'reject': {
+          if (!ref) throw new Error(commands.approval.usage);
+          if (sub === 'reject' && !opts.message) throw new Error('reject needs -m REASON');
+          const approval = await findApproval(ctx, me, ref);
+          const rec = await decide(ctx, approval, sub === 'approve' ? 'approved' : 'rejected', opts.message);
+          log(`${approval.sysapproval}: ${rec.state}`);
+          return outputMode(opts, 'table') === 'json' ? printJSON(rec) : undefined;
+        }
+        default:
+          throw new Error(`unknown subcommand "${sub}"\n\n${commands.approval.usage}`);
+      }
+    },
+  },
+
+  catalog: {
+    usage: `Usage: ${BIN} catalog ls [SEARCH] [-l N]                   find catalog items
+       ${BIN} catalog get ITEM                            the item's form: variables, types, mandatory, choices
+       ${BIN} catalog order ITEM [-s var=value]... [-d JSON] [--for USER] [--dry-run] [--force]
+ITEM is the item name (exact) or sys_id. Values: select boxes take the value or the label; user and
+group references take a name/email (other references need a sys_id); list collectors take a comma list.
+order checks mandatory variables first (the API does not); --force orders anyway. --dry-run prints the
+payload without ordering. --for orders on behalf of USER (name, user name or email).`,
+    options: {
+      limit: { type: 'string', short: 'l' },
+      set: { type: 'string', short: 's', multiple: true },
+      data: { type: 'string', short: 'd' },
+      for: { type: 'string' },
+      'dry-run': { type: 'boolean' },
+      force: { type: 'boolean' },
+    },
+    async run(_, opts, [sub = 'list', ...rest]) {
+      const ctx = ctxOf(opts);
+      const ref = rest.join(' ');
+      switch (sub) {
+        case 'list': {
+          const rows = await searchItems(ctx, ref, opts.limit ?? 20);
+          return outputMode(opts, 'table') === 'json' ? printJSON(rows) : printTable(rows, ['name', 'category', 'short_description', 'sys_id']);
+        }
+        case 'get': {
+          if (!ref) throw new Error(`usage: ${BIN} catalog get ITEM`);
+          const item = await getItem(ctx, ref);
+          if (outputMode(opts, 'table') === 'json') return printJSON(item);
+          process.stdout.write(`${item.name}  (${item.category}, ${item.sys_id})\n${item.short_description || ''}\n\n`);
+          const rows = item.variables.map((v) => ({
+            name: v.name,
+            label: v.label,
+            type: v.reference ? `${v.type} → ${v.reference}` : v.type,
+            req: v.mandatory ? 'yes' : '',
+            choices: v.choices.map((c) => (c.value === c.label ? c.value : `${c.value}=${c.label}`)).join(', '),
+          }));
+          return printTable(rows, ['name', 'label', 'type', 'req', 'choices']);
+        }
+        case 'order': {
+          if (!ref) throw new Error(`usage: ${BIN} catalog order ITEM -s var=value ...`);
+          const item = await getItem(ctx, ref);
+          const input = { ...(readData(opts.data) || {}), ...parseSets(opts.set) };
+          const { variables, problems } = await buildOrder(ctx, item, input, { force: opts.force });
+          if (problems.length) throw new Error(`not ordered:\n  - ${problems.join('\n  - ')}`);
+          const requestedFor = opts.for ? (await findOne(ctx, 'sys_user', opts.for, ['name', 'user_name', 'email'])).sys_id : undefined;
+          if (opts['dry-run']) return printJSON({ item: item.name, item_sys_id: item.sys_id, requested_for: requestedFor, variables });
+          const res = await orderNow(ctx, item, variables, { requestedFor });
+          if (outputMode(opts, 'table') === 'json') return printJSON(res);
+          log(`ordered ${item.name}: ${res.request_number}${res.items.length ? ` → ${res.items.map((i) => i.number).join(', ')}` : ''}`);
+          return;
+        }
+        default:
+          throw new Error(`unknown subcommand "${sub}"\n\n${commands.catalog.usage}`);
+      }
+    },
+  },
+
   ...recordCommands(),
 };
 commands.upgrade = commands.update;
+commands.approvals = commands.approval;
 
 export async function main(argv) {
+  // `--order -sys_updated_on` would be read as a flag; glue a dash-leading value to its option.
+  argv = argv.flatMap((a, i) => (a === '--order' && /^-[a-z]/i.test(argv[i + 1] ?? '') ? [] : i > 0 && argv[i - 1] === '--order' && /^-[a-z]/i.test(a) ? [`--order=${a}`] : [a]));
   // Pass 1: find the command word (global flags may precede it).
   const first = parseArgs({ args: argv, options: GLOBAL_OPTIONS, allowPositionals: true, strict: false });
   const name = first.positionals[0];
@@ -439,7 +553,8 @@ export async function main(argv) {
 export function handleError(err) {
   // Programming errors keep their stack; everything else (API, auth, usage, network) prints the message only.
   const network = err instanceof TypeError && err.message === 'fetch failed';
-  const expected = network || !(err instanceof TypeError || err instanceof ReferenceError);
+  const usage = String(err?.code ?? '').startsWith('ERR_PARSE_ARGS');
+  const expected = network || usage || !(err instanceof TypeError || err instanceof ReferenceError);
   const text = network ? `network error: ${err.cause?.code || err.cause?.message || 'fetch failed'}` : err?.message;
   const msg = process.env.SNOW_DEBUG || !expected ? err?.stack || String(err) : text;
   process.stderr.write(`${BIN}: ${msg}\n`);

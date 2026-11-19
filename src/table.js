@@ -61,3 +61,25 @@ export async function update(ctx, table, id, fields) {
   const res = await request(ctx, 'PATCH', tablePath(table, sysId), { query: writeQuery, body: fields });
   return res.data.result;
 }
+
+/** Delete one record (number or sys_id). Returns the sys_id that was deleted. */
+export async function remove(ctx, table, id) {
+  const sysId = await resolveSysId(ctx, table, id);
+  await request(ctx, 'DELETE', tablePath(table, sysId));
+  return sysId;
+}
+
+const JOURNAL = new Set(['comments', 'work_notes', 'comments_and_work_notes']);
+
+/**
+ * ServiceNow ignores values it cannot map (unknown choice label, ambiguous reference name) and still
+ * answers 200. Compare what was sent with what came back (display values) and list the fields that
+ * did not take. Numbers are skipped (choice values come back as "2 - High"), as are journal fields.
+ */
+export function unappliedFields(sent, result) {
+  const norm = (v) => String(v ?? '').trim().toLowerCase();
+  return Object.entries(sent)
+    .filter(([k, v]) => !JOURNAL.has(k) && typeof v === 'string' && v !== '' && !/^-?\d+(\.\d+)?$/.test(v.trim()) && k in result)
+    .filter(([k, v]) => !norm(result[k]).startsWith(norm(v)))
+    .map(([k, v]) => ({ field: k, sent: v, now: String(result[k] ?? '') }));
+}

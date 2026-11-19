@@ -1,8 +1,10 @@
 // Task-table commands: incident, change, ritm, sctask. Thin layer over the Table API helpers.
+import fs from 'node:fs';
 import { joinQuery, orderClause, outputMode, parseSets, readData, splitFields } from './args.js';
 import { request } from './http.js';
 import { mergeJournal, parseJournal } from './journal.js';
-import { SYS_ID_RE, create, get, list, update } from './table.js';
+import { SYS_ID_RE, create, get, list, remove, resolveSysId, unappliedFields, update } from './table.js';
+import { copyOut, deleteAttachment, listAttachments, uploadAttachment } from './attachments.js';
 import { printBlocks, printHeading, printJSON, printPairs, printRecord, printTable, printTotalNote } from './output.js';
 import { fetchImage, inlineImage, inlineProtocol } from './images.js';
 import { currentUser } from './user.js';
@@ -28,6 +30,8 @@ const KINDS = {
     create: {
       flags: { caller: 'caller_id', urgency: 'urgency', impact: 'impact', category: 'category' },
     },
+    // `close` / `resolve`: target state label, where -m goes, and whether a close code is required.
+    close: { state: 'Resolved', notes: 'close_notes', code: 'close_code', needsCode: true },
   },
   change: {
     table: 'change_request',
@@ -37,6 +41,7 @@ const KINDS = {
     create: {
       flags: { type: 'type', start: 'start_date', end: 'end_date', risk: 'risk', impact: 'impact' },
     },
+    close: { state: 'Closed', notes: 'close_notes', code: 'close_code', needsCode: true },
   },
   ritm: {
     table: 'sc_req_item',
@@ -45,6 +50,7 @@ const KINDS = {
     first: ['number', 'summary', 'details', 'short_description', 'cat_item', 'stage', 'state', 'request', 'requested_for', 'opened_by', 'assignment_group', 'assigned_to', 'opened_at', 'sys_updated_on', 'description'],
     varPath: 'variables',
     ritmId: 'sys_id',
+    close: { state: 'Closed Complete', notes: 'work_notes' },
   },
   sctask: {
     table: 'sc_task',
@@ -55,6 +61,7 @@ const KINDS = {
     ritmId: 'request_item.sys_id',
     // Short column names for dot-walked fields.
     columns: { requester: 'request_item.requested_for' },
+    close: { state: 'Closed Complete', notes: 'work_notes' },
   },
 };
 
@@ -170,7 +177,8 @@ async function loadForm(ctx, ritmSysId) {
     query: { sysparm_fields: vars.map((v) => `variables.${v.name}`).join(','), sysparm_display_value: 'true' },
   });
   const shown = res.data.result || {};
-  return vars.map((v) => ({ name: v.name, question: v.question, value: String(shown[`variables.${v.name}`] || v.raw).replace(/\r\n?/g, '\n').trim() }));
+  // `raw` is the stored value (sys_ids for references/list collectors): reuse it in `catalog order -s`.
+  return vars.map((v) => ({ name: v.name, question: v.question, value: String(shown[`variables.${v.name}`] || v.raw).replace(/\r\n?/g, '\n').trim(), raw: v.raw }));
 }
 
 /** Comments and work notes of a record (display text of its journal fields), as parsed entries. */
@@ -190,10 +198,18 @@ function usage(name, k) {
       --all-fields adds every other field, -f FIELDS prints just those fields
 ${k.create ? `  ${BIN} ${name} create -t TITLE [--description T] [--group NAME] [--assignee NAME] ${createFlags} [-s k=v]... [-d JSON]\n` : ''}  ${BIN} ${name} update <NUMBER|sys_id> [-t TITLE] [--description T] [--group NAME] [--assignee NAME] [-s k=v]... [-d JSON]
   ${BIN} ${name} comment <NUMBER|sys_id> <TEXT> [--work-note]
+  ${BIN} ${name} assign <NUMBER|sys_id> [--to me|NAME] [--group NAME]       (no flags: assign to me)
+  ${BIN} ${name} state <NUMBER|sys_id> <STATE LABEL> [-m WORK NOTE]         e.g. state SCTASK0010368 "Work in Progress"
+${k.close ? `  ${BIN} ${name} close <NUMBER|sys_id> [-m NOTES]${k.close.needsCode ? ' --code CLOSE_CODE' : ''} [--as STATE LABEL]   sets "${k.close.state}"${name === 'incident' ? ' (alias: resolve)' : ''}\n` : ''}  ${BIN} ${name} attach <NUMBER|sys_id> FILE... [--name NAME]
+  ${BIN} ${name} attachments <NUMBER|sys_id> [--out DIR]                     list (downloads to the cache; --out copies)
+  ${BIN} ${name} detach <NUMBER|sys_id> <FILE NAME|attachment sys_id> --yes
+  ${BIN} ${name} delete <NUMBER|sys_id> --yes
 
 Table: ${k.table}. Lists show active records, newest update first, unless --all / --order.
 ${k.varPath ? `Columns "summary" (the summary variable) and "details" (multi-line answers on the request form) come from catalog variables.\n` : ''}--long prints each record as a block with long text (summary, details, description) in full.
-Writes take display values for reference fields (e.g. --group "DevOps", --assignee "Jane Doe").
+Writes take display values for reference and choice fields (e.g. --group "DevOps", --assignee "Jane Doe",
+-s state="Work in Progress"). ServiceNow silently ignores values it cannot map, so writes check the
+result and fail (state/assign/close) or warn (create/update) when a field did not take.
 Global: -c CONTEXT, -o table|json`;
 }
 
@@ -206,6 +222,36 @@ function writeFields(opts, kind, isCreate) {
   if (isCreate) for (const [flag, field] of Object.entries(kind.create.flags)) if (opts[flag] !== undefined) fields[field] = opts[flag];
   Object.assign(fields, parseSets(opts.set));
   return fields;
+}
+
+const log = (msg) => process.stderr.write(`${msg}\n`);
+
+function showWritten(opts, kind, rec) {
+  return outputMode(opts, 'table') === 'json' ? printJSON(rec) : printRecord(rec, { first: kind.first, only: true });
+}
+
+function warnUnapplied(sent, rec) {
+  for (const u of unappliedFields(sent, rec)) log(`warning: ${u.field} is "${u.now}" after the write (sent "${u.sent}"); ServiceNow did not apply it`);
+}
+
+function mustApply(sent, rec, hint = '') {
+  const bad = unappliedFields(sent, rec);
+  if (bad.length) {
+    throw new Error(`${rec.number || 'record'}: ServiceNow did not apply ${bad.map((u) => `${u.field}="${u.sent}" (still "${u.now}")`).join(', ')}.${hint}`);
+  }
+}
+
+/**
+ * One active record matching VALUE on any of `keys` (or a sys_id). Ambiguous or missing matches fail,
+ * so writes never pick an arbitrary "John Smith".
+ */
+export async function findOne(ctx, table, value, keys) {
+  if (SYS_ID_RE.test(value)) return get(ctx, table, value, { fields: ['sys_id', ...keys] });
+  const query = `active=true^${keys.map((k, i) => `${i ? 'OR' : ''}${k}=${value}`).join('^')}`;
+  const { rows } = await list(ctx, table, { query, fields: ['sys_id', ...keys], limit: 5 });
+  if (!rows.length) throw new Error(`no active ${table} matching "${value}" (by ${keys.join('/')})`);
+  if (rows.length > 1) throw new Error(`"${value}" matches ${rows.length} ${table} records (${rows.map((r) => r[keys[0]]).join(', ')}); be more specific`);
+  return rows[0];
 }
 
 function makeCommand(name, kind) {
@@ -226,6 +272,13 @@ function makeCommand(name, kind) {
       'work-note': { type: 'boolean' },
       long: { type: 'boolean' },
       'no-images': { type: 'boolean' },
+      to: { type: 'string' },
+      message: { type: 'string', short: 'm' },
+      code: { type: 'string' },
+      as: { type: 'string' },
+      name: { type: 'string' },
+      out: { type: 'string' },
+      yes: { type: 'boolean', short: 'y' },
       ...COMMON_WRITE,
       ...createOpts,
     },
@@ -287,17 +340,28 @@ function makeCommand(name, kind) {
             }
           }
           const activity = mergeJournal(...(await Promise.all(journals)));
+          // Files attached to the record (and, for a catalog task, to its request item).
+          const owners = [[rec.number, rec.sys_id], ...(ritm && SYS_ID_RE.test(ritm.sysId || '') && ritm.sysId !== rec.sys_id ? [[ritm.number, ritm.sysId]] : [])];
+          const attachments = (
+            await Promise.all(owners.map(async ([num, id]) => (await listAttachments(ctx, id)).map((a) => ({ ...a, on: num }))))
+          ).flat();
           // Images pasted into comments: download once (cached), keep the local path for display / agents.
           if (!opts['no-images']) {
             await Promise.all(activity.map(async (e) => (e.images = await Promise.all(e.images.map((src) => fetchImage(ctx, src))))));
           } else {
             for (const e of activity) e.images = e.images.map((src) => ({ src }));
           }
-          if (outputMode(opts, 'table') === 'json') return printJSON({ ...rec, form, activity });
+          if (outputMode(opts, 'table') === 'json') return printJSON({ ...rec, form, attachments, activity });
           printRecord(rec, { first: kind.first, all: opts['all-fields'], only: true });
           if (form.length) {
             printHeading(`Request form (${ritm.number})`);
             printPairs(form.map((f) => [f.question, f.value]), '  ');
+          }
+          if (attachments.length) {
+            printHeading(`Attachments (${attachments.length})`);
+            for (const a of attachments) {
+              process.stdout.write(`  ${a.file_name}  (${a.size_bytes} bytes${a.on !== rec.number ? `, on ${a.on}` : ''})  file://${a.path}\n`);
+            }
           }
           printHeading(activity.length ? `Activity (${activity.length}, newest first)` : 'Activity: no comments or work notes');
           const protocol = inlineProtocol();
@@ -322,21 +386,97 @@ function makeCommand(name, kind) {
           const fields = writeFields(opts, kind, true);
           if (!fields.short_description) throw new Error('create needs -t/--title (short_description)');
           const rec = await create(ctx, kind.table, fields);
-          return outputMode(opts, 'table') === 'json' ? printJSON(rec) : printRecord(rec, { first: kind.first });
+          warnUnapplied(fields, rec);
+          return showWritten(opts, kind, rec);
         }
         case 'update': {
           if (!args[0]) throw new Error(`usage: ${BIN} ${name} update <NUMBER|sys_id> -s k=v`);
           const fields = writeFields(opts, kind, false);
           if (!Object.keys(fields).length) throw new Error('update needs at least one field (-s k=v, -t, --group, ...)');
           const rec = await update(ctx, kind.table, args[0], fields);
-          return outputMode(opts, 'table') === 'json' ? printJSON(rec) : printRecord(rec, { first: kind.first });
+          warnUnapplied(fields, rec);
+          return showWritten(opts, kind, rec);
         }
         case 'comment': {
           const [id, ...words] = args;
-          const text = words.join(' ');
+          const text = words.join(' ') || opts.message;
           if (!id || !text) throw new Error(`usage: ${BIN} ${name} comment <NUMBER|sys_id> <TEXT> [--work-note]`);
           const rec = await update(ctx, kind.table, id, { [opts['work-note'] ? 'work_notes' : 'comments']: text });
-          process.stderr.write(`${opts['work-note'] ? 'work note' : 'comment'} added to ${rec.number}\n`);
+          log(`${opts['work-note'] ? 'work note' : 'comment'} added to ${rec.number}`);
+          return;
+        }
+        case 'assign': {
+          if (!args[0]) throw new Error(`usage: ${BIN} ${name} assign <NUMBER|sys_id> [--to me|NAME] [--group NAME]`);
+          const fields = {};
+          if (opts.group) fields.assignment_group = (await findOne(ctx, 'sys_user_group', opts.group, ['name'])).name;
+          if (opts.to || !opts.group) {
+            const who = !opts.to || opts.to === 'me' ? await currentUser(ctx) : await findOne(ctx, 'sys_user', opts.to, ['name', 'user_name', 'email']);
+            fields.assigned_to = who.name;
+          }
+          const rec = await update(ctx, kind.table, args[0], fields);
+          mustApply(fields, rec);
+          log(`${rec.number}: ${[fields.assignment_group && `group ${rec.assignment_group}`, fields.assigned_to && `assigned to ${rec.assigned_to}`].filter(Boolean).join(', ')}`);
+          return outputMode(opts, 'table') === 'json' ? printJSON(rec) : undefined;
+        }
+        case 'state': {
+          const [id, ...words] = args;
+          const label = words.join(' ');
+          if (!id || !label) throw new Error(`usage: ${BIN} ${name} state <NUMBER|sys_id> <STATE LABEL> [-m WORK NOTE]`);
+          const fields = { state: label, ...(opts.message ? { work_notes: opts.message } : {}) };
+          const rec = await update(ctx, kind.table, id, fields);
+          mustApply(fields, rec, ' Use the state label exactly as the form shows it.');
+          log(`${rec.number}: state ${rec.state}`);
+          return outputMode(opts, 'table') === 'json' ? printJSON(rec) : undefined;
+        }
+        case 'resolve':
+        case 'close': {
+          if (!kind.close) throw new Error(`${BIN} ${name} close is not supported; use: ${BIN} ${name} state <NUMBER> <STATE LABEL>`);
+          if (!args[0]) throw new Error(`usage: ${BIN} ${name} close <NUMBER|sys_id> [-m NOTES]${kind.close.needsCode ? ' --code CLOSE_CODE' : ''}`);
+          const c = kind.close;
+          if (c.needsCode && !opts.code) throw new Error(`${name} close needs --code (the form's close/resolution code) and -m NOTES`);
+          if (c.needsCode && !opts.message) throw new Error(`${name} close needs -m NOTES (close notes are mandatory)`);
+          const fields = { state: opts.as || c.state };
+          if (opts.code) fields[c.code] = opts.code;
+          if (opts.message) fields[c.notes] = opts.message;
+          const rec = await update(ctx, kind.table, args[0], fields);
+          mustApply(fields, rec, c.needsCode ? ' Check the close code label on the form.' : '');
+          log(`${rec.number}: ${rec.state}`);
+          return outputMode(opts, 'table') === 'json' ? printJSON(rec) : undefined;
+        }
+        case 'attach': {
+          const [id, ...files] = args;
+          if (!id || !files.length) throw new Error(`usage: ${BIN} ${name} attach <NUMBER|sys_id> FILE... [--name NAME]`);
+          if (opts.name && files.length > 1) throw new Error('--name works with a single FILE');
+          const missing = files.filter((f) => !fs.existsSync(f) || !fs.statSync(f).isFile());
+          if (missing.length) throw new Error(`not a file: ${missing.join(', ')}`);
+          const sysId = await resolveSysId(ctx, kind.table, id);
+          const done = [];
+          for (const f of files) done.push(await uploadAttachment(ctx, kind.table, sysId, f, { name: opts.name }));
+          return outputMode(opts, 'table') === 'json' ? printJSON(done) : printTable(done, ['file_name', 'size_bytes', 'content_type', 'sys_id']);
+        }
+        case 'attachments': {
+          if (!args[0]) throw new Error(`usage: ${BIN} ${name} attachments <NUMBER|sys_id> [--out DIR]`);
+          const atts = await listAttachments(ctx, await resolveSysId(ctx, kind.table, args[0]));
+          if (opts.out) for (const a of atts) a.path = copyOut(a, opts.out);
+          return outputMode(opts, 'table') === 'json' ? printJSON(atts) : printTable(atts, ['file_name', 'size_bytes', 'content_type', 'path']);
+        }
+        case 'detach': {
+          const [id, which] = args;
+          if (!id || !which) throw new Error(`usage: ${BIN} ${name} detach <NUMBER|sys_id> <FILE NAME|attachment sys_id> --yes`);
+          const atts = await listAttachments(ctx, await resolveSysId(ctx, kind.table, id));
+          const hits = atts.filter((a) => a.sys_id === which || a.file_name === which);
+          if (!hits.length) throw new Error(`no attachment "${which}" on ${id} (have: ${atts.map((a) => a.file_name).join(', ') || 'none'})`);
+          if (hits.length > 1) throw new Error(`"${which}" matches ${hits.length} attachments; use the sys_id (${hits.map((a) => a.sys_id).join(', ')})`);
+          if (!opts.yes) throw new Error(`this deletes ${hits[0].file_name} from ${id}; re-run with --yes`);
+          await deleteAttachment(ctx, hits[0].sys_id);
+          log(`deleted ${hits[0].file_name} from ${id}`);
+          return;
+        }
+        case 'delete': {
+          if (!args[0]) throw new Error(`usage: ${BIN} ${name} delete <NUMBER|sys_id> --yes`);
+          if (!opts.yes) throw new Error(`this permanently deletes ${args[0]} (${kind.table}); re-run with --yes`);
+          const sysId = await remove(ctx, kind.table, args[0]);
+          log(`deleted ${args[0]} (${kind.table} ${sysId})`);
           return;
         }
         default:
