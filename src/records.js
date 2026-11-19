@@ -126,7 +126,7 @@ ${k.create ? `  ${BIN} ${name} create -t TITLE [--description T] [--group NAME] 
   ${BIN} ${name} comment <NUMBER|sys_id> <TEXT> [--work-note]
 
 Table: ${k.table}. Lists show active records, newest update first, unless --all / --order.
-${k.varPath ? `Columns "summary" and "details" come from the request's catalog variables (summary; additional_detail).\n` : ''}--long prints each record as a block with long text (summary, details, description) in full.
+${k.varPath ? `Columns "summary" (the summary variable) and "details" (multi-line answers on the request form) come from catalog variables.\n` : ''}--long prints each record as a block with long text (summary, details, description) in full.
 Writes take display values for reference fields (e.g. --group "DevOps", --assignee "Jane Doe").
 Global: -c CONTEXT, -o table|json`;
 }
