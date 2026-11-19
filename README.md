@@ -77,7 +77,8 @@ snow inc list                                # active records, newest update fir
 snow inc list --mine                         # assigned to me
 snow inc list --opened-by-me --all           # include inactive records
 snow inc list --group "Service Desk" -q 'priority<=2' -l 50
-snow inc get INC0010001
+snow inc get INC0010001                      # main fields + comments/work notes (--all-fields for everything)
+snow task get SCTASK0010385                  # + the request form (requester, every answered question) and activity
 snow inc create -t "VPN down for site B" --description "..." --group "Network" --urgency 2 --impact 2
 snow inc update INC0010001 -s state=2 --assignee "Jane Doe"
 snow inc comment INC0010001 "Mitigated; monitoring"          # customer-visible comment
@@ -95,6 +96,14 @@ snow task list --long                        # one block per task, summary and d
     by question when there is more than one. Each catalog item names its fields differently, so `snow`
     picks them by type. This costs one extra API call per page.
 - Tables shrink their widest columns to fit the terminal; use `--long` or `get` to read long text in full.
+- **`get`** shows the main fields, then for `ritm`/`sctask` the **request form** as the portal shows it
+  (every answered question, references shown by name), then **Activity**: comments and work notes of the
+  record and its request item, newest first, rich text turned into plain text. `-o json` adds `form` and
+  `activity` arrays.
+- **Images** pasted into comments are downloaded once to `~/.cache/snow/images/` (`SNOW_CACHE_DIR` moves it)
+  and listed as `file://` paths. iTerm2, WezTerm, kitty and Ghostty also draw them inline. For other
+  terminals that support the iTerm2 or kitty image protocol, set `SNOW_IMAGES=iterm` or `kitty`.
+  `--no-images` skips the download.
 - **Reads** return display values. Add `--raw` to get stored values (sys_ids, choice numbers) instead.
 - **Writes** send `sysparm_input_display_value=true`, so reference fields take names:
   `--group "Service Desk"`, `-s assigned_to="Jane Doe"`. Choice fields take their stored value, e.g. `-s state=2`.

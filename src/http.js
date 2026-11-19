@@ -32,8 +32,11 @@ async function send(url, method, token, body, headers) {
   });
 }
 
-/** Authenticated call to the instance. Returns { status, headers, data }. Throws ApiError on non-2xx. */
-export async function request(ctx, method, apiPath, { query, body, headers } = {}) {
+/**
+ * Authenticated call to the instance. Returns { status, headers, data }. Throws ApiError on non-2xx.
+ * `binary: true` returns data as a Buffer (attachments, images) instead of parsed JSON/text.
+ */
+export async function request(ctx, method, apiPath, { query, body, headers, binary = false } = {}) {
   const url = buildUrl(ctx, apiPath, query);
   let session = await getSession(ctx);
   let res = await send(url, method, session.access_token, body, headers);
@@ -43,6 +46,7 @@ export async function request(ctx, method, apiPath, { query, body, headers } = {
     res = await send(url, method, session.access_token, body, headers);
     if (res.status === 401) throw new LoginRequired(ctx, 'instance rejected the access token');
   }
+  if (binary && res.ok) return { status: res.status, headers: res.headers, data: Buffer.from(await res.arrayBuffer()) };
   const text = await res.text();
   let data = text;
   if ((res.headers.get('content-type') || '').includes('json') && text) {

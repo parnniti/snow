@@ -35,6 +35,11 @@ Never print, log, or store the output of `snow token`; it is a live bearer token
 
 ## Read
 
+To understand a ticket, start with `snow -c prod task get <NUMBER>` (or `ritm get`). It prints the
+main fields, the full request form (requester, department, every answer), and all comments and work
+notes, including the parent request's. Images in comments are saved locally and printed as
+`[image N] file:///...png`. Open those files to see screenshots; they often hold the error or evidence.
+
 ```bash
 snow -c prod inc list                          # active, newest update first, 20 rows
 snow -c prod inc list --mine                   # assigned to me

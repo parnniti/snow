@@ -70,16 +70,28 @@ export function printBlocks(rows, cols, longFields) {
   process.stdout.write(out.join('\n\n') + '\n');
 }
 
-/** Vertical key: value view. `first` fields print first, in order; empty values hidden unless all. */
-export function printRecord(rec, { first = [], all = false } = {}) {
-  const keys = [...first.filter((k) => k in rec), ...Object.keys(rec).filter((k) => !first.includes(k)).sort()];
-  const shown = keys.filter((k) => all || fmtValue(rec[k]) !== '');
-  const w = Math.max(...shown.map((k) => k.length));
-  const out = shown.map((k) => {
-    const v = fmtValue(rec[k]);
-    return `${k.padEnd(w)}  ${v.includes('\n') ? v.replace(/\n/g, `\n${' '.repeat(w + 2)}`) : v}`;
-  });
+/**
+ * Vertical key: value view. `first` fields print first, in order; empty values hidden unless all.
+ * `only` limits the view to the `first` fields (the curated set) unless `all`.
+ */
+export function printRecord(rec, { first = [], all = false, only = false } = {}) {
+  const rest = only && !all ? [] : Object.keys(rec).filter((k) => !first.includes(k)).sort();
+  const keys = [...first.filter((k) => k in rec), ...rest];
+  printPairs(keys.filter((k) => all || fmtValue(rec[k]) !== '').map((k) => [k, fmtValue(rec[k])]));
+}
+
+/** Aligned "label  value" lines; multi-line values stay aligned under the value column. */
+export function printPairs(pairs, indent = '') {
+  if (!pairs.length) return;
+  const w = Math.max(...pairs.map(([k]) => k.length));
+  const pad = `${indent}${' '.repeat(w + 2)}`;
+  const out = pairs.map(([k, v]) => `${indent}${k.padEnd(w)}  ${String(v).replace(/\n/g, `\n${pad}`)}`);
   process.stdout.write(out.join('\n') + '\n');
+}
+
+/** Blank line + heading, used to separate sections in `get`. */
+export function printHeading(title) {
+  process.stdout.write(`\n${title}\n`);
 }
 
 /** X-Total-Count counts matches before row-level ACLs, so "0 shown, N total" means ACL-hidden rows. */

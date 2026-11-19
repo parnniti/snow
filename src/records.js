@@ -1,7 +1,10 @@
 // Task-table commands: incident, change, ritm, sctask. Thin layer over the Table API helpers.
 import { joinQuery, orderClause, outputMode, parseSets, readData, splitFields } from './args.js';
+import { request } from './http.js';
+import { mergeJournal, parseJournal } from './journal.js';
 import { SYS_ID_RE, create, get, list, update } from './table.js';
-import { printBlocks, printJSON, printRecord, printTable, printTotalNote } from './output.js';
+import { printBlocks, printHeading, printJSON, printPairs, printRecord, printTable, printTotalNote } from './output.js';
+import { fetchImage, inlineImage, inlineProtocol } from './images.js';
 import { currentUser } from './user.js';
 import { BIN, loadConfig, resolveContext } from './config.js';
 
@@ -117,11 +120,68 @@ async function attachDetails(ctx, kind, rows) {
   }
 }
 
+function writeImage(ctx, img, n, protocol) {
+  const url = String(new URL(img.src, ctx.instance));
+  const where = img.path ? `file://${img.path}` : img.error ? `${url} (${img.error})` : url;
+  process.stdout.write(`    [image ${n}] ${where}\n`);
+  if (img.path && protocol !== 'none') process.stdout.write(inlineImage(img.path, img.type, protocol));
+}
+
+// Form layout pieces that carry no answer: labels, breaks, container start/end, macros, UI pages.
+const LAYOUT_TYPES = new Set(['11', '12', '14', '15', '17', '19', '20', '24']);
+const CHECKBOX = '7';
+
+/**
+ * The request form as the portal shows it: answered questions in form order, values as display text
+ * (reference variables resolve to names). Two calls: variable metadata, then the values by dot-walk.
+ * Returns [] when the account cannot read the variables.
+ */
+async function loadForm(ctx, ritmSysId) {
+  let meta;
+  try {
+    ({ rows: meta } = await list(ctx, 'sc_item_option_mtom', {
+      query: `request_item=${ritmSysId}^ORDERBYsc_item_option.order`,
+      fields: ['sc_item_option.item_option_new.name', 'sc_item_option.item_option_new.question_text', 'sc_item_option.item_option_new.type', 'sc_item_option.value'],
+      limit: 500,
+      displayValue: false,
+    }));
+  } catch (e) {
+    if (e.name === 'ApiError' && e.status === 403) return [];
+    throw e;
+  }
+  const seen = new Set();
+  const vars = [];
+  for (const m of meta) {
+    const name = m['sc_item_option.item_option_new.name'];
+    const type = m['sc_item_option.item_option_new.type'];
+    const raw = (m['sc_item_option.value'] || '').trim();
+    if (!name || seen.has(name) || LAYOUT_TYPES.has(type) || !raw || (type === CHECKBOX && raw === 'false')) continue;
+    seen.add(name);
+    vars.push({ name, question: m['sc_item_option.item_option_new.question_text'] || name, type, raw });
+  }
+  if (!vars.length) return [];
+  const res = await request(ctx, 'GET', `/api/now/table/sc_req_item/${ritmSysId}`, {
+    query: { sysparm_fields: vars.map((v) => `variables.${v.name}`).join(','), sysparm_display_value: 'true' },
+  });
+  const shown = res.data.result || {};
+  return vars.map((v) => ({ name: v.name, question: v.question, value: String(shown[`variables.${v.name}`] || v.raw).replace(/\r\n?/g, '\n').trim() }));
+}
+
+/** Comments and work notes of a record (display text of its journal fields), as parsed entries. */
+async function loadJournal(ctx, table, sysId, source) {
+  const rec = await get(ctx, table, sysId, { fields: ['comments_and_work_notes'], displayValue: true });
+  return parseJournal(rec.comments_and_work_notes, source);
+}
+
 function usage(name, k) {
   const createFlags = k.create ? Object.keys(k.create.flags).map((f) => `[--${f} V]`).join(' ') : '';
   return `Usage:
   ${BIN} ${name} list [--mine] [--opened-by-me] [--group NAME] [--all] [-q QUERY] [-f FIELDS] [-l N] [--offset N] [--order [-]FIELD] [--long] [--raw]
   ${BIN} ${name} get <NUMBER|sys_id> [-f FIELDS] [--all-fields] [--raw]
+      shows the main fields${k.varPath ? ', the request form (every answered question)' : ''} and comments + work notes;
+      images in comments are downloaded to ~/.cache/snow and drawn inline on iTerm2/WezTerm/kitty/Ghostty
+      (force with SNOW_IMAGES=iterm|kitty, disable with --no-images);
+      --all-fields adds every other field, -f FIELDS prints just those fields
 ${k.create ? `  ${BIN} ${name} create -t TITLE [--description T] [--group NAME] [--assignee NAME] ${createFlags} [-s k=v]... [-d JSON]\n` : ''}  ${BIN} ${name} update <NUMBER|sys_id> [-t TITLE] [--description T] [--group NAME] [--assignee NAME] [-s k=v]... [-d JSON]
   ${BIN} ${name} comment <NUMBER|sys_id> <TEXT> [--work-note]
 
@@ -159,6 +219,7 @@ function makeCommand(name, kind) {
       'all-fields': { type: 'boolean' },
       'work-note': { type: 'boolean' },
       long: { type: 'boolean' },
+      'no-images': { type: 'boolean' },
       ...COMMON_WRITE,
       ...createOpts,
     },
@@ -198,15 +259,55 @@ function makeCommand(name, kind) {
             if (wantDetails) await attachDetails(ctx, kind, [rec]);
           } else {
             rec = await get(ctx, kind.table, args[0], { displayValue });
-            if (kind.varPath && rec.sys_id) {
-              const { apiFields, fill } = virtualRequest(kind, ['summary', 'details']);
-              const extra = fill(await get(ctx, kind.table, rec.sys_id, { fields: apiFields, displayValue }));
-              await attachDetails(ctx, kind, [extra]);
-              if (extra.summary && extra.summary !== rec.short_description) rec.summary = extra.summary;
-              if (extra.details) rec.details = extra.details;
+          }
+          if (asked || !rec.sys_id) {
+            return outputMode(opts, 'table') === 'json' ? printJSON(rec) : printRecord(rec, { first: asked, all: opts['all-fields'] });
+          }
+          // Full view: curated fields, the request form (ritm/sctask), and comments + work notes.
+          let form = [];
+          let ritm;
+          const journals = [loadJournal(ctx, kind.table, rec.sys_id, rec.number)];
+          if (kind.varPath) {
+            const { apiFields, fill } = virtualRequest(kind, ['summary']);
+            const extra = await get(ctx, kind.table, rec.sys_id, { fields: [...apiFields, kind.ritmId], displayValue });
+            const summary = fill(extra).summary;
+            if (summary && summary !== rec.short_description) rec.summary = summary;
+            ritm = { sysId: extra[kind.ritmId], number: kind.table === 'sc_req_item' ? rec.number : rec.request_item };
+            if (SYS_ID_RE.test(ritm.sysId || '')) {
+              if (kind.table !== 'sc_req_item') journals.push(loadJournal(ctx, 'sc_req_item', ritm.sysId, ritm.number));
+              form = await loadForm(ctx, ritm.sysId);
             }
           }
-          return outputMode(opts, 'table') === 'json' ? printJSON(rec) : printRecord(rec, { first: kind.first, all: opts['all-fields'] });
+          const activity = mergeJournal(...(await Promise.all(journals)));
+          // Images pasted into comments: download once (cached), keep the local path for display / agents.
+          if (!opts['no-images']) {
+            await Promise.all(activity.map(async (e) => (e.images = await Promise.all(e.images.map((src) => fetchImage(ctx, src))))));
+          } else {
+            for (const e of activity) e.images = e.images.map((src) => ({ src }));
+          }
+          if (outputMode(opts, 'table') === 'json') return printJSON({ ...rec, form, activity });
+          printRecord(rec, { first: kind.first, all: opts['all-fields'], only: true });
+          if (form.length) {
+            printHeading(`Request form (${ritm.number})`);
+            printPairs(form.map((f) => [f.question, f.value]), '  ');
+          }
+          printHeading(activity.length ? `Activity (${activity.length}, newest first)` : 'Activity: no comments or work notes');
+          const protocol = inlineProtocol();
+          for (const e of activity) {
+            const from = e.source && e.source !== rec.number ? `  ·  ${e.source}` : '';
+            process.stdout.write(`  ${e.at}  ${e.by}  ·  ${e.type}${from}\n`);
+            // A marker on its own line becomes the image (path + inline picture); inline markers stay in the text.
+            const shown = new Set();
+            for (const line of e.text.split('\n')) {
+              const n = Number(line.match(/^\[image (\d+)\]$/)?.[1]);
+              if (n && e.images[n - 1]) {
+                writeImage(ctx, e.images[n - 1], n, protocol);
+                shown.add(n);
+              } else process.stdout.write(`    ${line}\n`);
+            }
+            e.images.forEach((img, i) => shown.has(i + 1) || writeImage(ctx, img, i + 1, protocol));
+          }
+          return;
         }
         case 'create': {
           if (!kind.create) throw new Error(`${BIN} ${name} create is not supported; ${kind.table} records come from their parent flow`);
