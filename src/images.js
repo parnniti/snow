@@ -71,11 +71,12 @@ const CELL_H = 18;
 
 /**
  * Box (in terminal cells) an image is drawn into: its natural size, capped at SNOW_IMAGE_WIDTH columns
- * (default 72, never wider than the terminal) and SNOW_IMAGE_HEIGHT rows (default 18). Aspect ratio is kept.
+ * (default: the terminal width minus a 6-column margin, at most 120) and SNOW_IMAGE_HEIGHT rows
+ * (default 30). Aspect ratio is kept.
  */
 export function imageBox(size, columns = process.stdout.columns || 100) {
-  const capW = Math.max(10, Math.min(Number(process.env.SNOW_IMAGE_WIDTH) || 72, columns - 6));
-  const capH = Math.max(4, Number(process.env.SNOW_IMAGE_HEIGHT) || 18);
+  const capW = Math.max(10, Math.min(Number(process.env.SNOW_IMAGE_WIDTH) || 120, columns - 6));
+  const capH = Math.max(4, Number(process.env.SNOW_IMAGE_HEIGHT) || 30);
   if (!size) return { w: capW, h: capH };
   return { w: Math.min(capW, Math.ceil(size.w / CELL_W)), h: Math.min(capH, Math.ceil(size.h / CELL_H)) };
 }

@@ -41,9 +41,9 @@ test('inline images keep natural size when small and fit a capped box when large
   png.writeUInt32BE(1568, 16);
   png.writeUInt32BE(770, 20);
   assert.deepEqual(imageSize(png), { w: 1568, h: 770 });
-  assert.deepEqual(imageBox({ w: 1568, h: 770 }, 160), { w: 72, h: 18 }); // big screenshot → capped
+  assert.deepEqual(imageBox({ w: 2074, h: 948 }, 160), { w: 120, h: 30 }); // big screenshot → capped
   assert.deepEqual(imageBox({ w: 300, h: 90 }, 160), { w: 34, h: 5 }); // small → natural, not upscaled
-  assert.deepEqual(imageBox({ w: 1568, h: 770 }, 60), { w: 54, h: 18 }); // never wider than the terminal
+  assert.deepEqual(imageBox({ w: 2074, h: 948 }, 100), { w: 94, h: 30 }); // never wider than the terminal
   const gif = Buffer.from('GIF89a\x40\x01\xc8\x00rest', 'latin1');
   assert.deepEqual(imageSize(gif), { w: 320, h: 200 });
   assert.equal(imageSize(Buffer.from('not an image')), null);

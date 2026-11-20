@@ -102,7 +102,7 @@ snow task list --long                        # one block per task, summary and d
   `activity` arrays.
 - **Images** pasted into comments are downloaded once to `~/.cache/snow/images/` (`SNOW_CACHE_DIR` moves it)
   and listed as `file://` paths. iTerm2, WezTerm, Warp, kitty and Ghostty also draw them inline, at their natural
-  size but at most 72 columns × 18 rows (`SNOW_IMAGE_WIDTH` / `SNOW_IMAGE_HEIGHT` change the cap; open the
+  size but at most the window width (up to 120 columns) × 30 rows (`SNOW_IMAGE_WIDTH` / `SNOW_IMAGE_HEIGHT` change the cap; open the
   `file://` link for full size). For other terminals that support the iTerm2 or kitty image protocol, set
   `SNOW_IMAGES=iterm` or `kitty`. `--no-images` skips the download.
 - **Reads** return display values. Add `--raw` to get stored values (sys_ids, choice numbers) instead.

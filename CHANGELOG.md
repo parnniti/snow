@@ -6,6 +6,15 @@ version is 0.x, a minor bump may change output or defaults.
 Upgrade with `snow update` (0.4.0 and later). From 0.1.0 or 0.2.0, which have no `update` command, run
 `npm install -g @parnniti/snow@latest` once.
 
+## 0.8.2 - 2026-11-20
+
+### Changed
+- Inline images are bigger. They used to be capped at 72 columns × 18 rows; now they can use the window
+  width less a 6-column margin (at most 120 columns) and up to 30 rows. Small images still keep their
+  natural size.
+- Request-form answers and descriptions keep pasted commands and JSON on one line too (0.8.1 only did this
+  for comments).
+
 ## 0.8.1 - 2026-11-20
 
 ### Fixed
