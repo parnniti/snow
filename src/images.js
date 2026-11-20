@@ -81,19 +81,28 @@ export function imageBox(size, columns = process.stdout.columns || 100) {
   return { w: Math.min(capW, Math.ceil(size.w / CELL_W)), h: Math.min(capH, Math.ceil(size.h / CELL_H)) };
 }
 
+/**
+ * Which side of the box limits the image. Sending only that one (width or height) makes the terminal
+ * reserve exactly the image's space: with both, Warp reserves the whole box and leaves blank rows.
+ */
+export function fitSide(size, box) {
+  if (!size) return 'width';
+  return (box.w * CELL_W * size.h) / size.w / CELL_H <= box.h ? 'width' : 'height';
+}
+
 /** Escape sequence that draws the image inline, or '' when the protocol cannot show this file. */
 export function inlineImage(file, type, protocol) {
   const data = fs.readFileSync(file);
-  const box = imageBox(imageSize(data));
+  const size = imageSize(data);
+  const box = imageBox(size);
+  const side = fitSide(size, box);
   if (protocol === 'iterm') {
-    // width/height in cells with preserveAspectRatio: the image fits inside the box.
-    return `    \x1b]1337;File=inline=1;size=${data.length};width=${box.w};height=${box.h};preserveAspectRatio=1:${data.toString('base64')}\x07\n`;
+    const dim = side === 'width' ? `width=${box.w}` : `height=${box.h}`;
+    return `    \x1b]1337;File=inline=1;size=${data.length};${dim};preserveAspectRatio=1:${data.toString('base64')}\x07\n`;
   }
   if (protocol === 'kitty' && type === 'png') {
-    // kitty stretches when given both c and r, so pick the one that keeps the aspect ratio inside the box.
-    const size = imageSize(data);
-    const byWidth = size ? (box.w * CELL_W * size.h) / size.w / CELL_H <= box.h : true;
-    const fit = byWidth ? `c=${box.w}` : `r=${box.h}`;
+    // kitty stretches when given both c and r, so give only the limiting one.
+    const fit = side === 'width' ? `c=${box.w}` : `r=${box.h}`;
     const b64 = data.toString('base64');
     let out = '';
     for (let i = 0; i < b64.length; i += 4096) {

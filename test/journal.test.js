@@ -44,6 +44,9 @@ test('inline images keep natural size when small and fit a capped box when large
   assert.deepEqual(imageBox({ w: 2074, h: 948 }, 160), { w: 120, h: 30 }); // big screenshot → capped
   assert.deepEqual(imageBox({ w: 300, h: 90 }, 160), { w: 34, h: 5 }); // small → natural, not upscaled
   assert.deepEqual(imageBox({ w: 2074, h: 948 }, 100), { w: 94, h: 30 }); // never wider than the terminal
+  const { fitSide } = await import('../src/images.js');
+  assert.equal(fitSide({ w: 2074, h: 948 }, { w: 120, h: 30 }), 'width'); // wide screenshot: width limits
+  assert.equal(fitSide({ w: 600, h: 1800 }, { w: 67, h: 30 }), 'height'); // tall phone shot: height limits
   const gif = Buffer.from('GIF89a\x40\x01\xc8\x00rest', 'latin1');
   assert.deepEqual(imageSize(gif), { w: 320, h: 200 });
   assert.equal(imageSize(Buffer.from('not an image')), null);
