@@ -7,7 +7,7 @@ import { SYS_ID_RE, create, get, list, remove, resolveSysId, unappliedFields, up
 import { copyOut, deleteAttachment, listAttachments, uploadAttachment } from './attachments.js';
 import { fmtValue, printBlocks, printHeading, printJSON, printPairs, printRecord, printTable, printTotalNote } from './output.js';
 import { fetchImage, inlineImage, inlineProtocol } from './images.js';
-import { ago, bold, cyan, dim, humanLabel, lineWidth, looksLikeCode, stateColor, wrap, yellow } from './style.js';
+import { ago, bold, cyan, dim, humanLabel, lineWidth, stateColor, wrap, yellow } from './style.js';
 import { currentUser } from './user.js';
 import { BIN, loadConfig, resolveContext } from './config.js';
 
@@ -211,7 +211,7 @@ function renderRecord(ctx, kind, rec, { form, attachments, activity, ritm, all }
       if (n && e.images[n - 1]) {
         writeImage(ctx, e.images[n - 1], n, protocol);
         shown.add(n);
-      } else for (const l of looksLikeCode(line) ? [line] : wrap(line, width)) out(`    ${l}`.trimEnd());
+      } else for (const l of wrap(line, width)) out(`    ${l}`.trimEnd());
     }
     e.images.forEach((img, i) => shown.has(i + 1) || writeImage(ctx, img, i + 1, protocol));
   }

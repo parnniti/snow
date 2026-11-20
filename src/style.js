@@ -29,12 +29,13 @@ export function lineWidth() {
 
 /**
  * Word-wrap plain text to `width`, keeping existing line breaks. A word longer than the width (a URL,
- * a path) stays whole rather than being cut, so it remains clickable.
+ * a path) stays whole rather than being cut, so it remains clickable. Lines that look like commands or
+ * JSON (looksLikeCode) are left whole so they can be copied; the terminal soft-wraps them.
  */
 export function wrap(text, width) {
   const out = [];
   for (const line of String(text ?? '').split('\n')) {
-    if (line.length <= width) {
+    if (line.length <= width || looksLikeCode(line)) {
       out.push(line);
       continue;
     }

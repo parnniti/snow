@@ -27,6 +27,9 @@ test('commands and JSON are left whole; prose is wrapped', async () => {
   assert.equal(looksLikeCode('az rest --method POST --url "https://graph.microsoft.com/v1.0/x" \\'), true);
   assert.equal(looksLikeCode(`--body '{"principalId":"f143","resourceId":"cc4f","appRoleId":"0000"}'`), true);
   assert.equal(looksLikeCode('I added user to the app registration, please try again.'), false);
+  const { wrap } = await import('../src/style.js');
+  const cmd = 'kubectl -n app rollout restart deploy/api --context aks-bkx-uat-sea-01 && kubectl get pods';
+  assert.deepEqual(wrap(cmd, 30), [cmd]);
 });
 
 test('state colours: in-flight states (including Implement) differ from finished ones', async () => {
