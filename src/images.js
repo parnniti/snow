@@ -48,20 +48,58 @@ export function inlineProtocol() {
   return 'none';
 }
 
+/** Pixel size from a PNG, GIF or JPEG header; null for other formats. */
+export function imageSize(buf) {
+  if (buf.length > 24 && buf.readUInt32BE(0) === 0x89504e47) return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+  if (buf.length > 10 && buf.toString('latin1', 0, 3) === 'GIF') return { w: buf.readUInt16LE(6), h: buf.readUInt16LE(8) };
+  if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8) {
+    for (let i = 2; i + 9 < buf.length; ) {
+      if (buf[i] !== 0xff) return null;
+      const marker = buf[i + 1];
+      const len = buf.readUInt16BE(i + 2);
+      // SOF0-SOF15 carry the frame size, except DHT (C4), JPG (C8) and DAC (CC).
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) return { w: buf.readUInt16BE(i + 7), h: buf.readUInt16BE(i + 5) };
+      i += 2 + len;
+    }
+  }
+  return null;
+}
+
+// Typical terminal cell in pixels, to turn image pixels into columns/rows without upscaling small images.
+const CELL_W = 9;
+const CELL_H = 18;
+
+/**
+ * Box (in terminal cells) an image is drawn into: its natural size, capped at SNOW_IMAGE_WIDTH columns
+ * (default 72, never wider than the terminal) and SNOW_IMAGE_HEIGHT rows (default 18). Aspect ratio is kept.
+ */
+export function imageBox(size, columns = process.stdout.columns || 100) {
+  const capW = Math.max(10, Math.min(Number(process.env.SNOW_IMAGE_WIDTH) || 72, columns - 6));
+  const capH = Math.max(4, Number(process.env.SNOW_IMAGE_HEIGHT) || 18);
+  if (!size) return { w: capW, h: capH };
+  return { w: Math.min(capW, Math.ceil(size.w / CELL_W)), h: Math.min(capH, Math.ceil(size.h / CELL_H)) };
+}
+
 /** Escape sequence that draws the image inline, or '' when the protocol cannot show this file. */
 export function inlineImage(file, type, protocol) {
   const data = fs.readFileSync(file);
+  const box = imageBox(imageSize(data));
   if (protocol === 'iterm') {
-    return `\x1b]1337;File=inline=1;size=${data.length};preserveAspectRatio=1:${data.toString('base64')}\x07\n`;
+    // width/height in cells with preserveAspectRatio: the image fits inside the box.
+    return `    \x1b]1337;File=inline=1;size=${data.length};width=${box.w};height=${box.h};preserveAspectRatio=1:${data.toString('base64')}\x07\n`;
   }
   if (protocol === 'kitty' && type === 'png') {
+    // kitty stretches when given both c and r, so pick the one that keeps the aspect ratio inside the box.
+    const size = imageSize(data);
+    const byWidth = size ? (box.w * CELL_W * size.h) / size.w / CELL_H <= box.h : true;
+    const fit = byWidth ? `c=${box.w}` : `r=${box.h}`;
     const b64 = data.toString('base64');
     let out = '';
     for (let i = 0; i < b64.length; i += 4096) {
       const more = i + 4096 < b64.length ? 1 : 0;
-      out += `\x1b_G${i === 0 ? 'f=100,a=T,' : ''}m=${more};${b64.slice(i, i + 4096)}\x1b\\`;
+      out += `\x1b_G${i === 0 ? `f=100,a=T,${fit},` : ''}m=${more};${b64.slice(i, i + 4096)}\x1b\\`;
     }
-    return `${out}\n`;
+    return `    ${out}\n`;
   }
   return '';
 }

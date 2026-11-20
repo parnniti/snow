@@ -6,6 +6,13 @@ version is 0.x, a minor bump may change output or defaults.
 Upgrade with `snow update` (0.4.0 and later). From 0.1.0 or 0.2.0, which have no `update` command, run
 `npm install -g @parnniti/snow@latest` once.
 
+## 0.7.4 - 2026-11-20
+
+### Changed
+- Inline comment images are drawn at their natural size, capped at 72 columns × 18 rows and never wider
+  than the terminal. They used to fill the whole window. `SNOW_IMAGE_WIDTH` and `SNOW_IMAGE_HEIGHT`
+  change the cap. The `file://` link still opens the full-size image.
+
 ## 0.7.3 - 2026-11-20
 
 ### Changed

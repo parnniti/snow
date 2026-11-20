@@ -33,3 +33,18 @@ test('merge drops the copy ServiceNow posts on the parent request and sorts newe
   const merged = mergeJournal(own, parent);
   assert.deepEqual(merged.map((e) => [e.by, e.source]), [['Bob', 'SR-1'], ['Jane', 'SCTASK1']]);
 });
+
+test('inline images keep natural size when small and fit a capped box when large', async () => {
+  const { imageBox, imageSize } = await import('../src/images.js');
+  const png = Buffer.alloc(33);
+  png.writeUInt32BE(0x89504e47, 0);
+  png.writeUInt32BE(1568, 16);
+  png.writeUInt32BE(770, 20);
+  assert.deepEqual(imageSize(png), { w: 1568, h: 770 });
+  assert.deepEqual(imageBox({ w: 1568, h: 770 }, 160), { w: 72, h: 18 }); // big screenshot → capped
+  assert.deepEqual(imageBox({ w: 300, h: 90 }, 160), { w: 34, h: 5 }); // small → natural, not upscaled
+  assert.deepEqual(imageBox({ w: 1568, h: 770 }, 60), { w: 54, h: 18 }); // never wider than the terminal
+  const gif = Buffer.from('GIF89a\x40\x01\xc8\x00rest', 'latin1');
+  assert.deepEqual(imageSize(gif), { w: 320, h: 200 });
+  assert.equal(imageSize(Buffer.from('not an image')), null);
+});

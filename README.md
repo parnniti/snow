@@ -101,9 +101,10 @@ snow task list --long                        # one block per task, summary and d
   record and its request item, newest first, rich text turned into plain text. `-o json` adds `form` and
   `activity` arrays.
 - **Images** pasted into comments are downloaded once to `~/.cache/snow/images/` (`SNOW_CACHE_DIR` moves it)
-  and listed as `file://` paths. iTerm2, WezTerm, Warp, kitty and Ghostty also draw them inline. For other
-  terminals that support the iTerm2 or kitty image protocol, set `SNOW_IMAGES=iterm` or `kitty`.
-  `--no-images` skips the download.
+  and listed as `file://` paths. iTerm2, WezTerm, Warp, kitty and Ghostty also draw them inline, at their natural
+  size but at most 72 columns × 18 rows (`SNOW_IMAGE_WIDTH` / `SNOW_IMAGE_HEIGHT` change the cap; open the
+  `file://` link for full size). For other terminals that support the iTerm2 or kitty image protocol, set
+  `SNOW_IMAGES=iterm` or `kitty`. `--no-images` skips the download.
 - **Reads** return display values. Add `--raw` to get stored values (sys_ids, choice numbers) instead.
 - **Writes** send `sysparm_input_display_value=true`, so reference fields take names:
   `--group "Service Desk"`, `-s assigned_to="Jane Doe"`. Choice fields take their stored value, e.g. `-s state=2`.
