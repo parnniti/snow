@@ -6,6 +6,16 @@ version is 0.x, a minor bump may change output or defaults.
 Upgrade with `snow update` (0.4.0 and later). From 0.1.0 or 0.2.0, which have no `update` command, run
 `npm install -g @parnniti/snow@latest` once.
 
+## 0.8.3 - 2026-11-20
+
+### Changed
+- `get` draws image attachments (PNG, JPEG, GIF, WebP) inline in the Attachments section, as the web
+  form does. Before, they were only a link. Other files stay a link.
+- Attachment links go on their own line and are URL-encoded, so names with spaces ("Screenshot … at
+  10.25.07.png") stay clickable.
+- Inline images reserve only their own height: only the limiting side (width or height) is sent, so no
+  blank rows appear under wide screenshots.
+
 ## 0.8.2 - 2026-11-20
 
 ### Changed

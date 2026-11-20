@@ -1,5 +1,6 @@
 // Task-table commands: incident, change, ritm, sctask. Thin layer over the Table API helpers.
 import fs from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { joinQuery, orderClause, outputMode, parseSets, readData, splitFields } from './args.js';
 import { request } from './http.js';
 import { mergeJournal, parseJournal } from './journal.js';
@@ -182,16 +183,21 @@ function renderRecord(ctx, kind, rec, { form, attachments, activity, ritm, all }
     printHeading('Request form', ritm?.number);
     printPairs(form.map((f) => [f.question, f.value]), '  ');
   }
+  const protocol = inlineProtocol();
   if (attachments.length) {
     printHeading('Attachments', String(attachments.length));
     for (const a of attachments) {
       const where = [kb(a.size_bytes), a.on !== rec.number ? `on ${a.on}` : ''].filter(Boolean).join(', ');
-      out(`  ${a.file_name}  ${dim(`(${where})  file://${a.path}`)}`);
+      out(`  ${bold(a.file_name)}  ${dim(`(${where})`)}`);
+      // pathToFileURL escapes spaces, so links like "Screenshot 2569-11-20 at 10.25.07.png" stay clickable.
+      out(`    ${dim(pathToFileURL(a.path).href)}`);
+      // Images are drawn like the web form shows them; other files stay a link.
+      const ext = (String(a.content_type).match(/^image\/(png|jpe?g|gif|webp)/i)?.[1] || '').toLowerCase();
+      if (ext && protocol !== 'none') process.stdout.write(inlineImage(a.path, ext === 'jpeg' ? 'jpg' : ext, protocol));
     }
   }
 
   printHeading('Activity', activity.length ? `${activity.length}, newest first` : 'no comments or work notes');
-  const protocol = inlineProtocol();
   const width = lineWidth() - 4;
   for (const e of activity) {
     let text = e.text;
