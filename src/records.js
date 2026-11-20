@@ -168,12 +168,15 @@ function renderRecord(ctx, kind, rec, { form, attachments, activity, ritm, all }
   // Main fields, minus what the header already shows.
   const inHeader = new Set(['number', 'summary', 'state', 'priority', 'requester', 'details', 'opened_at', 'sys_updated_on']);
   if (rec.short_description === title) inHeader.add('short_description');
-  const keys = all ? [...kind.first, ...Object.keys(rec).filter((k) => !kind.first.includes(k)).sort()] : kind.first;
+  // Short description first and in bold: on catalog tasks it often carries the actual instruction
+  // ("Create key vault on env dev,sit,…"), which differs from the request's summary.
+  const base = all ? [...kind.first, ...Object.keys(rec).filter((k) => !kind.first.includes(k)).sort()] : kind.first;
+  const keys = [...base.filter((k) => k === 'short_description'), ...base.filter((k) => k !== 'short_description')];
   const pairs = keys
     .filter((k) => !inHeader.has(k) && k in rec)
-    .map((k) => [k === 'short_description' ? 'Task' : humanLabel(k), fmtValue(rec[k])])
-    .filter(([k, v]) => all || v !== '' || k === 'Assigned to')
-    .map(([k, v]) => [k, v === '' ? dim('unassigned') : v]);
+    .map((k) => [humanLabel(k), fmtValue(rec[k]), k])
+    .filter(([label, v]) => all || v !== '' || label === 'Assigned to')
+    .map(([label, v, k]) => [label, v === '' ? dim('unassigned') : k === 'short_description' ? bold(v) : v]);
   if (pairs.length) {
     out();
     printPairs(pairs);

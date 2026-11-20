@@ -30,6 +30,8 @@ test('commands and JSON are left whole; prose is wrapped', async () => {
   const { wrap } = await import('../src/style.js');
   const cmd = 'kubectl -n app rollout restart deploy/api --context aks-bkx-uat-sea-01 && kubectl get pods';
   assert.deepEqual(wrap(cmd, 30), [cmd]);
+  const row = '│ 1    │ az-kv-bkx-bni-dev         │ bx-dev-sea-ekyc-kek-rsa4096-01                                        ';
+  assert.deepEqual(wrap(row, 40), [row]); // aligned table rows keep their spacing
 });
 
 test('state colours: in-flight states (including Implement) differ from finished ones', async () => {

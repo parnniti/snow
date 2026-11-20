@@ -89,7 +89,9 @@ snow task list --long                        # one block per task, summary and d
 ```
 
 - **`ritm` and `sctask`** show `summary` and `details` columns taken from the request's catalog variables,
-  because `short_description` on catalog tasks is usually just the template name ("Cloud access task").
+  because `short_description` on catalog tasks is often just the template name ("Cloud access task").
+  `get` always shows the task's own **Short description** and **Description** first, since they can
+  hold the task-specific instruction.
   - `summary`: the `summary` variable, else `short_description`. Use other names with
     `SNOW_SUMMARY_VARIABLES` (comma-separated, first non-empty wins).
   - `details`: every non-empty multi-line text answer on the request form, in form order and labelled

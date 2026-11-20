@@ -72,14 +72,15 @@ export function stateColor(state) {
 }
 
 /**
- * Lines that look like commands, JSON or paths are left whole (the terminal soft-wraps them), so they
- * can still be copied and pasted. Prose lines get word-wrapped.
+ * Lines that look like commands, JSON, paths or aligned tables are left whole (the terminal soft-wraps
+ * them), so they can still be copied and keep their columns. Prose lines get word-wrapped.
  */
 export function looksLikeCode(line) {
   const t = line.trim();
   if (!t) return false;
   if (/^(\$ |--?[a-z]|[{[]|az |kubectl |curl |helm |terraform |git |ssh |psql |mysql |npm |snow |sudo |docker )/i.test(t)) return true;
   if (/\\$/.test(t)) return true; // shell line continuation
+  if (/[│┃┆╎]|\t/.test(t) || (t.match(/\S {3,}\S/g) || []).length >= 2) return true; // aligned table
   const symbols = (t.match(/[{}[\]"=:/\\|<>;]/g) || []).length;
   return symbols / t.length > 0.12;
 }

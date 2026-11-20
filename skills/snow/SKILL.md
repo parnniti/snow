@@ -36,9 +36,16 @@ Never print, log, or store the output of `snow token`; it is a live bearer token
 ## Read
 
 To understand a ticket, start with `snow -c prod task get <NUMBER>` (or `ritm get`). It prints the
-main fields, the full request form (requester, department, every answer), and all comments and work
-notes, including the parent request's. Images in comments are saved locally and printed as
-`[image N] file:///...png`. Open those files to see screenshots; they often hold the error or evidence.
+header (summary, state, requester), the main fields starting with **Short description** and
+**Description**, the full request form (requester, department, every answer), attachments, and all
+comments and work notes, including the parent request's. Images in comments and image attachments are
+saved locally and printed as `file:///...png`. Open those files to see screenshots; they often hold the
+error or evidence.
+
+Read all of it before acting or reporting. On a catalog task the **Short description** and
+**Description** are often written by whoever created the task, and they say what this particular task
+must do, e.g. "Create key vault on env dev,sit,uat…" with a table of vaults and keys. That can be
+narrower than, or different from, the request's summary ("Request to deploy ekyc service").
 
 ```bash
 snow -c prod inc list                          # active, newest update first, 20 rows
@@ -56,8 +63,8 @@ snow -c prod api GET /api/now/<path> -q sysparm_limit=5
 - Reads return display values; `--raw` returns stored values (sys_ids, choice numbers).
 - Filters use ServiceNow encoded queries. See [references/encoded-queries.md](references/encoded-queries.md).
 - `ritm`/`sctask` lists show `summary` (the `summary` variable) and `details` (all multi-line answers on the
-  request form). `short_description` there is only the task template name. Read `summary`/`details`
-  (`--long` or `get` for full text) before reporting what a task is about.
+  request form). `short_description` is sometimes only the task template name ("Cloud access task") but
+  often holds task-specific instructions, so always open the task with `get` before working on it.
 
 Command map: `incident`/`inc` → incident, `change`/`chg` → change_request, `ritm` → sc_req_item,
 `sctask`/`task` → sc_task. All have list (alias `ls`), get, update, comment, assign, state, attach,

@@ -6,6 +6,17 @@ version is 0.x, a minor bump may change output or defaults.
 Upgrade with `snow update` (0.4.0 and later). From 0.1.0 or 0.2.0, which have no `update` command, run
 `npm install -g @parnniti/snow@latest` once.
 
+## 0.8.4 - 2026-11-20
+
+### Changed
+- `get` shows **Short description** as the first field, in bold and under its own name (0.8.0 labelled
+  it "Task"). On catalog tasks it often holds the actual instruction, which can differ from the
+  request's summary in the title.
+- Aligned tables in descriptions and comments (rows with `│`, tabs or column spacing) keep their
+  layout instead of being re-wrapped into one squashed line. Trailing spaces are trimmed.
+- The bundled agent skill tells agents to read Short description and Description before acting. It used
+  to say `short_description` was only a template name.
+
 ## 0.8.3 - 2026-11-20
 
 ### Changed
