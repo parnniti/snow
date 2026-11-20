@@ -48,7 +48,7 @@ const KINDS = {
   ritm: {
     table: 'sc_req_item',
     aliases: [],
-    listFields: ['number', 'summary', 'details', 'stage', 'state', 'requested_for', 'assigned_to'],
+    listFields: ['number', 'summary', 'details', 'stage', 'state', 'requested_for', 'assignment_group', 'assigned_to'],
     first: ['number', 'summary', 'details', 'short_description', 'cat_item', 'stage', 'state', 'request', 'requested_for', 'opened_by', 'assignment_group', 'assigned_to', 'opened_at', 'sys_updated_on', 'description'],
     varPath: 'variables',
     ritmId: 'sys_id',
@@ -57,7 +57,7 @@ const KINDS = {
   sctask: {
     table: 'sc_task',
     aliases: ['task'],
-    listFields: ['number', 'summary', 'details', 'requester', 'state', 'request_item', 'assigned_to'],
+    listFields: ['number', 'summary', 'details', 'requester', 'state', 'request_item', 'assignment_group', 'assigned_to'],
     first: ['number', 'summary', 'details', 'short_description', 'requester', 'state', 'request_item', 'request', 'assignment_group', 'assigned_to', 'opened_at', 'sys_updated_on', 'description'],
     varPath: 'request_item.variables',
     ritmId: 'request_item.sys_id',

@@ -1,6 +1,6 @@
 {
   "name": "@parnniti/snow",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "description": "ServiceNow CLI with browser/SSO login (OAuth 2.0 authorization code + PKCE). Incidents, changes, requests, any table, raw REST.",
   "keywords": [
     "servicenow",
