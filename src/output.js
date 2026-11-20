@@ -1,3 +1,5 @@
+import { bold, dim, lineWidth, wrap } from './style.js';
+
 const MAX_COL = 60;
 
 export function fmtValue(v) {
@@ -112,18 +114,30 @@ export function printRecord(rec, { first = [], all = false, only = false } = {})
   printPairs(keys.filter((k) => all || fmtValue(rec[k]) !== '').map((k) => [k, fmtValue(rec[k])]));
 }
 
-/** Aligned "label  value" lines; multi-line values stay aligned under the value column. */
+const LABEL_MAX = 28;
+
+/**
+ * Aligned "label  value" lines. Values wrap to the terminal with a hanging indent, so long answers stay
+ * in their column instead of running back to the left edge. A label longer than 28 characters gets its
+ * own line, with the value starting under the value column on the next line.
+ */
 export function printPairs(pairs, indent = '') {
   if (!pairs.length) return;
-  const w = Math.max(...pairs.map(([k]) => k.length));
+  const w = Math.min(LABEL_MAX, Math.max(...pairs.map(([k]) => k.length)));
   const pad = `${indent}${' '.repeat(w + 2)}`;
-  const out = pairs.map(([k, v]) => `${indent}${k.padEnd(w)}  ${String(v).replace(/\n/g, `\n${pad}`)}`);
+  const room = Math.max(20, lineWidth() - pad.length);
+  const out = [];
+  for (const [k, v] of pairs) {
+    const lines = wrap(String(v), room);
+    if (k.length > w) out.push(`${indent}${dim(k)}`, ...lines.map((l) => pad + l));
+    else out.push(`${indent}${dim(k.padEnd(w))}  ${lines[0] ?? ''}`, ...lines.slice(1).map((l) => pad + l));
+  }
   process.stdout.write(out.join('\n') + '\n');
 }
 
-/** Blank line + heading, used to separate sections in `get`. */
-export function printHeading(title) {
-  process.stdout.write(`\n${title}\n`);
+/** Blank line + bold heading (with an optional dim note), separating sections in `get`. */
+export function printHeading(title, note = '') {
+  process.stdout.write(`\n${bold(title)}${note ? `  ${dim(note)}` : ''}\n`);
 }
 
 /** X-Total-Count counts matches before row-level ACLs, so "0 shown, N total" means ACL-hidden rows. */

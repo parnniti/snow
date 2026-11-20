@@ -6,12 +6,23 @@ version is 0.x, a minor bump may change output or defaults.
 Upgrade with `snow update` (0.4.0 and later). From 0.1.0 or 0.2.0, which have no `update` command, run
 `npm install -g @parnniti/snow@latest` once.
 
-## 0.7.4 - 2026-11-20
+## 0.8.0 - 2026-11-20
 
 ### Changed
+- `get` is laid out for reading, like `gh issue view`:
+  - a bold title (the summary) with the record number;
+  - a status line: coloured state • requested by • opened/updated "3h ago" • number of updates;
+  - the main fields with readable labels ("Assignment group", "Assigned to: unassigned").
+- Long values wrap to the terminal (at most 120 columns) with a hanging indent, instead of running back to
+  the left edge. Labels longer than 28 characters get their own line.
+- Activity entries are separated by blank lines, each headed by a bold author, the entry type (comment in
+  cyan, work note in yellow) and a dim "5m ago · time · via SR-…". ServiceNow's
+  "SR-…'s comment :" prefix is dropped; "via" says where the comment came from.
 - Inline comment images are drawn at their natural size, capped at 72 columns × 18 rows and never wider
   than the terminal. They used to fill the whole window. `SNOW_IMAGE_WIDTH` and `SNOW_IMAGE_HEIGHT`
-  change the cap. The `file://` link still opens the full-size image.
+  change the cap, and the `file://` link still opens the full-size image. This change was committed as
+  0.7.4, which was never published.
+- Colour only on a terminal; `NO_COLOR=1` turns it off (bold stays), `FORCE_COLOR=1` turns it on.
 
 ## 0.7.3 - 2026-11-20
 

@@ -5,8 +5,9 @@ import { request } from './http.js';
 import { mergeJournal, parseJournal } from './journal.js';
 import { SYS_ID_RE, create, get, list, remove, resolveSysId, unappliedFields, update } from './table.js';
 import { copyOut, deleteAttachment, listAttachments, uploadAttachment } from './attachments.js';
-import { printBlocks, printHeading, printJSON, printPairs, printRecord, printTable, printTotalNote } from './output.js';
+import { fmtValue, printBlocks, printHeading, printJSON, printPairs, printRecord, printTable, printTotalNote } from './output.js';
 import { fetchImage, inlineImage, inlineProtocol } from './images.js';
+import { ago, bold, cyan, dim, humanLabel, lineWidth, stateColor, wrap, yellow } from './style.js';
 import { currentUser } from './user.js';
 import { BIN, loadConfig, resolveContext } from './config.js';
 
@@ -136,8 +137,84 @@ async function attachDetails(ctx, kind, rows) {
 function writeImage(ctx, img, n, protocol) {
   const url = String(new URL(img.src, ctx.instance));
   const where = img.path ? `file://${img.path}` : img.error ? `${url} (${img.error})` : url;
-  process.stdout.write(`    [image ${n}] ${where}\n`);
+  process.stdout.write(`    ${dim(`[image ${n}] ${where}`)}\n`);
   if (img.path && protocol !== 'none') process.stdout.write(inlineImage(img.path, img.type, protocol));
+}
+
+const kb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
+// "SR-20261119-010's comment : text" is ServiceNow copying a comment between task and request item.
+const COPIED = /^(\S+)'s comment\s*:\s*/;
+
+/**
+ * Human view of one record, laid out like `gh issue view`: bold title and number, a status line, the
+ * main fields with readable labels, then the request form, attachments and activity as sections.
+ */
+function renderRecord(ctx, kind, rec, { form, attachments, activity, ritm, all }) {
+  const title = rec.summary || rec.short_description || rec.number;
+  const requester = rec.requester || rec.requested_for || rec.caller_id || rec.requested_by || rec.opened_by;
+  const status = [
+    stateColor(rec.state),
+    rec.priority && !/^\s*$/.test(rec.priority) ? rec.priority : '',
+    requester ? `requested by ${bold(requester)}` : '',
+    rec.opened_at ? `opened ${ago(rec.opened_at) || rec.opened_at}` : '',
+    rec.sys_updated_on ? `updated ${ago(rec.sys_updated_on) || rec.sys_updated_on}` : '',
+    `${activity.length} ${activity.length === 1 ? 'update' : 'updates'}`,
+  ].filter(Boolean);
+  const out = (s = '') => process.stdout.write(`${s}\n`);
+  out(`${bold(title)}  ${dim(rec.number)}`);
+  out(status.join(dim(' • ')));
+
+  // Main fields, minus what the header already shows.
+  const inHeader = new Set(['number', 'summary', 'state', 'priority', 'requester', 'details', 'opened_at', 'sys_updated_on']);
+  if (rec.short_description === title) inHeader.add('short_description');
+  const keys = all ? [...kind.first, ...Object.keys(rec).filter((k) => !kind.first.includes(k)).sort()] : kind.first;
+  const pairs = keys
+    .filter((k) => !inHeader.has(k) && k in rec)
+    .map((k) => [k === 'short_description' ? 'Task' : humanLabel(k), fmtValue(rec[k])])
+    .filter(([k, v]) => all || v !== '' || k === 'Assigned to')
+    .map(([k, v]) => [k, v === '' ? dim('unassigned') : v]);
+  if (pairs.length) {
+    out();
+    printPairs(pairs);
+  }
+
+  if (form.length) {
+    printHeading('Request form', ritm?.number);
+    printPairs(form.map((f) => [f.question, f.value]), '  ');
+  }
+  if (attachments.length) {
+    printHeading('Attachments', String(attachments.length));
+    for (const a of attachments) {
+      const where = [kb(a.size_bytes), a.on !== rec.number ? `on ${a.on}` : ''].filter(Boolean).join(', ');
+      out(`  ${a.file_name}  ${dim(`(${where})  file://${a.path}`)}`);
+    }
+  }
+
+  printHeading('Activity', activity.length ? `${activity.length}, newest first` : 'no comments or work notes');
+  const protocol = inlineProtocol();
+  const width = lineWidth() - 4;
+  for (const e of activity) {
+    let text = e.text;
+    let via = e.source && e.source !== rec.number ? e.source : '';
+    const copied = text.match(COPIED);
+    if (copied) {
+      text = text.slice(copied[0].length);
+      if (copied[1] !== rec.number) via = copied[1];
+    }
+    const type = /work/i.test(e.type) ? yellow('work note') : cyan('comment');
+    out();
+    out(`  ${bold(e.by)}  ${type}  ${dim([ago(e.at), e.at, via && `via ${via}`].filter(Boolean).join(' · '))}`);
+    // A marker on its own line becomes the image (path + inline picture); inline markers stay in the text.
+    const shown = new Set();
+    for (const line of text.split('\n')) {
+      const n = Number(line.trim().match(/^\[image (\d+)\]$/)?.[1]);
+      if (n && e.images[n - 1]) {
+        writeImage(ctx, e.images[n - 1], n, protocol);
+        shown.add(n);
+      } else for (const l of wrap(line, width)) out(`    ${l}`.trimEnd());
+    }
+    e.images.forEach((img, i) => shown.has(i + 1) || writeImage(ctx, img, i + 1, protocol));
+  }
 }
 
 // Form layout pieces that carry no answer: labels, breaks, container start/end, macros, UI pages.
@@ -353,33 +430,7 @@ function makeCommand(name, kind) {
             for (const e of activity) e.images = e.images.map((src) => ({ src }));
           }
           if (outputMode(opts, 'table') === 'json') return printJSON({ ...rec, form, attachments, activity });
-          printRecord(rec, { first: kind.first, all: opts['all-fields'], only: true });
-          if (form.length) {
-            printHeading(`Request form (${ritm.number})`);
-            printPairs(form.map((f) => [f.question, f.value]), '  ');
-          }
-          if (attachments.length) {
-            printHeading(`Attachments (${attachments.length})`);
-            for (const a of attachments) {
-              process.stdout.write(`  ${a.file_name}  (${a.size_bytes} bytes${a.on !== rec.number ? `, on ${a.on}` : ''})  file://${a.path}\n`);
-            }
-          }
-          printHeading(activity.length ? `Activity (${activity.length}, newest first)` : 'Activity: no comments or work notes');
-          const protocol = inlineProtocol();
-          for (const e of activity) {
-            const from = e.source && e.source !== rec.number ? `  ·  ${e.source}` : '';
-            process.stdout.write(`  ${e.at}  ${e.by}  ·  ${e.type}${from}\n`);
-            // A marker on its own line becomes the image (path + inline picture); inline markers stay in the text.
-            const shown = new Set();
-            for (const line of e.text.split('\n')) {
-              const n = Number(line.match(/^\[image (\d+)\]$/)?.[1]);
-              if (n && e.images[n - 1]) {
-                writeImage(ctx, e.images[n - 1], n, protocol);
-                shown.add(n);
-              } else process.stdout.write(`    ${line}\n`);
-            }
-            e.images.forEach((img, i) => shown.has(i + 1) || writeImage(ctx, img, i + 1, protocol));
-          }
+          renderRecord(ctx, kind, rec, { form, attachments, activity, ritm, all: opts['all-fields'] });
           return;
         }
         case 'create': {
