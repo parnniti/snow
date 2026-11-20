@@ -34,7 +34,7 @@ export async function fetchImage(ctx, src) {
 }
 
 /**
- * Inline image protocol for this terminal: "iterm" (iTerm2, WezTerm, VS Code), "kitty" (kitty, Ghostty),
+ * Inline image protocol for this terminal: "iterm" (iTerm2, WezTerm, Warp), "kitty" (kitty, Ghostty),
  * or "none". SNOW_IMAGES=iterm|kitty|none overrides detection.
  */
 export function inlineProtocol() {
@@ -42,7 +42,8 @@ export function inlineProtocol() {
   if (forced) return ['iterm', 'kitty'].includes(forced) ? forced : 'none';
   if (!process.stdout.isTTY) return 'none';
   const tp = process.env.TERM_PROGRAM || '';
-  if (tp === 'iTerm.app' || tp === 'WezTerm' || process.env.LC_TERMINAL === 'iTerm2') return 'iterm';
+  // Warp renders the iTerm2 protocol (and kitty); iTerm2's also handles JPEG/GIF, so prefer it.
+  if (tp === 'iTerm.app' || tp === 'WezTerm' || tp === 'WarpTerminal' || process.env.LC_TERMINAL === 'iTerm2') return 'iterm';
   if (process.env.TERM === 'xterm-kitty' || tp === 'ghostty' || process.env.KITTY_WINDOW_ID) return 'kitty';
   return 'none';
 }

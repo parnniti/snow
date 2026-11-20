@@ -193,7 +193,7 @@ function usage(name, k) {
   ${BIN} ${name} list [--mine] [--opened-by-me] [--group NAME] [--all] [-q QUERY] [-f FIELDS] [-l N] [--offset N] [--order [-]FIELD] [--long] [--raw]
   ${BIN} ${name} get <NUMBER|sys_id> [-f FIELDS] [--all-fields] [--raw]
       shows the main fields${k.varPath ? ', the request form (every answered question)' : ''} and comments + work notes;
-      images in comments are downloaded to ~/.cache/snow and drawn inline on iTerm2/WezTerm/kitty/Ghostty
+      images in comments are downloaded to ~/.cache/snow and drawn inline on iTerm2/WezTerm/Warp/kitty/Ghostty
       (force with SNOW_IMAGES=iterm|kitty, disable with --no-images);
       --all-fields adds every other field, -f FIELDS prints just those fields
 ${k.create ? `  ${BIN} ${name} create -t TITLE [--description T] [--group NAME] [--assignee NAME] ${createFlags} [-s k=v]... [-d JSON]\n` : ''}  ${BIN} ${name} update <NUMBER|sys_id> [-t TITLE] [--description T] [--group NAME] [--assignee NAME] [-s k=v]... [-d JSON]

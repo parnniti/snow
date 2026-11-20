@@ -6,6 +6,12 @@ version is 0.x, a minor bump may change output or defaults.
 Upgrade with `snow update` (0.4.0 and later). From 0.1.0 or 0.2.0, which have no `update` command, run
 `npm install -g @parnniti/snow@latest` once.
 
+## 0.7.3 - 2026-11-20
+
+### Changed
+- Warp is detected (`TERM_PROGRAM=WarpTerminal`), so comment images in `get` are drawn inline there
+  instead of only printed as `file://` links.
+
 ## 0.7.2 - 2026-11-20
 
 ### Changed
