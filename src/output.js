@@ -128,7 +128,7 @@ export function printPairs(pairs, indent = '') {
   const room = Math.max(20, lineWidth() - pad.length);
   const out = [];
   for (const [k, v] of pairs) {
-    const lines = wrap(String(v), room);
+    const lines = wrap(String(v), room).map((l) => l.replace(/\s+$/, ''));
     if (k.length > w) out.push(`${indent}${dim(k)}`, ...lines.map((l) => pad + l));
     else out.push(`${indent}${dim(k.padEnd(w))}  ${lines[0] ?? ''}`, ...lines.slice(1).map((l) => pad + l));
   }
