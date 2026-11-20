@@ -304,8 +304,8 @@ function makeCommand(name, kind) {
           if (wantDetails) await attachDetails(ctx, kind, rows);
           if (outputMode(opts, 'table') === 'json') return printJSON(rows);
           if (opts.long) printBlocks(rows, fields, LONG_FIELDS);
-          // What the record is about stays wide; record numbers never get cut; the rest shrinks first.
-          else printTable(rows, fields, { keep: ['summary', 'short_description'], fixed: ['number', 'request_item', 'request'] });
+          // printTable keeps summary/short_description wide and never cuts record numbers.
+          else printTable(rows, fields);
           printTotalNote(rows.length, total);
           return;
         }

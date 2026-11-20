@@ -51,11 +51,15 @@ export function fitWidths(widths, headers, max, keep = [], fixed = []) {
   return w; // still too wide: every column is at its floor, let the terminal wrap
 }
 
+// Defaults for every table: the column that says what a row is about stays wide; identifiers never shrink.
+const DEFAULT_KEEP = ['summary', 'short_description', 'what', 'name'];
+const DEFAULT_FIXED = ['number', 'request_item', 'request', 'for', 'sys_id'];
+
 /**
  * `keep`: columns to keep wide when the table must shrink to the terminal; `fixed`: never shrink
- * (see fitWidths).
+ * (see fitWidths). Both default to the well-known column names above.
  */
-export function printTable(rows, cols, { keep = [], fixed = [] } = {}) {
+export function printTable(rows, cols, { keep = DEFAULT_KEEP, fixed = DEFAULT_FIXED } = {}) {
   if (!rows.length) {
     process.stderr.write('(no records)\n');
     return;
