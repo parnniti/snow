@@ -6,6 +6,14 @@ version is 0.x, a minor bump may change output or defaults.
 Upgrade with `snow update` (0.4.0 and later). From 0.1.0 or 0.2.0, which have no `update` command, run
 `npm install -g @parnniti/snow@latest` once.
 
+## 0.7.1 - 2026-11-20
+
+### Changed
+- Lists that must shrink to fit the terminal now keep `summary` (or `short_description`) widest. Other
+  columns give way first, down to 16 characters, and only then does the summary shrink. Summaries can
+  run to 100 characters instead of 60.
+- Record numbers (`number`, `request_item`, `request`) are never cut short.
+
 ## 0.7.0 - 2026-11-20
 
 ### Added

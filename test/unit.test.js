@@ -60,6 +60,20 @@ test('tables fit the terminal by shrinking the widest columns, never below the h
   assert.deepEqual(fitWidths([10, 10], ['number', 'state'], 5), [6, 6]); // floor = max(header, 6)
 });
 
+test('summary stays widest, record numbers never shrink, other columns give way first', async () => {
+  const { fitWidths } = await import('../src/output.js');
+  const headers = ['number', 'summary', 'details', 'requester', 'state', 'request_item', 'assigned_to'];
+  const widths = [13, 60, 60, 22, 16, 15, 22];
+  const fit = (max) => fitWidths(widths, headers, max, ['summary'], ['number', 'request_item']);
+  // 140 columns: others drop to 16, summary takes the rest.
+  assert.deepEqual(fit(140), [13, 36, 16, 16, 16, 15, 16]);
+  // 110 columns: summary stops at 30 while the others go below 16; numbers stay whole.
+  const n = fit(110);
+  assert.equal(n.reduce((a, b) => a + b, 0) + 12, 110);
+  assert.deepEqual([n[0], n[1], n[5]], [13, 30, 15]);
+  assert.ok(n.every((x, i) => i === 1 || x <= n[1]), 'summary is the widest column');
+});
+
 test('update compares versions numerically, releases above pre-releases', async () => {
   const { compareVersions } = await import('../src/update.js');
   assert.equal(compareVersions('0.10.0', '0.9.9'), 1);
