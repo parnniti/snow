@@ -6,6 +6,14 @@ version is 0.x, a minor bump may change output or defaults.
 Upgrade with `snow update` (0.4.0 and later). From 0.1.0 or 0.2.0, which have no `update` command, run
 `npm install -g @parnniti/snow@latest` once.
 
+## 0.8.1 - 2026-11-20
+
+### Fixed
+- Comment lines that look like commands, JSON or paths are no longer word-wrapped, so they paste
+  correctly (for example `az rest … \` and `--body '{…}'`).
+- The "Implement" state (changes) is coloured as in progress, not as finished.
+- `sys_id` is labelled "Sys ID" (it was shown as "Sys").
+
 ## 0.8.0 - 2026-11-20
 
 ### Changed

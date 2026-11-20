@@ -14,9 +14,25 @@ test('labels and relative times read like the UI', () => {
   assert.equal(humanLabel('assignment_group'), 'Assignment group');
   assert.equal(humanLabel('u_editable'), 'Editable');
   assert.equal(humanLabel('caller_id'), 'Caller');
+  assert.equal(humanLabel('sys_id'), 'Sys ID');
   const now = new Date(2026, 10, 20, 15, 40, 0).getTime();
   assert.equal(ago('2026-11-20 15:37:18', now), '2m ago');
   assert.equal(ago('2026-11-19 16:32:22', now), '23h ago');
   assert.equal(ago('2026-11-01 09:00:00', now), '19d ago');
   assert.equal(ago('not a time', now), '');
+});
+
+test('commands and JSON are left whole; prose is wrapped', async () => {
+  const { looksLikeCode } = await import('../src/style.js');
+  assert.equal(looksLikeCode('az rest --method POST --url "https://graph.microsoft.com/v1.0/x" \\'), true);
+  assert.equal(looksLikeCode(`--body '{"principalId":"f143","resourceId":"cc4f","appRoleId":"0000"}'`), true);
+  assert.equal(looksLikeCode('I added user to the app registration, please try again.'), false);
+});
+
+test('state colours: in-flight states (including Implement) differ from finished ones', async () => {
+  process.env.FORCE_COLOR = '1';
+  const { stateColor } = await import(`../src/style.js?force=${Date.now()}`);
+  assert.match(stateColor('Implement'), /\x1b\[33m/); // yellow
+  assert.match(stateColor('Closed Complete'), /\x1b\[35m/); // magenta
+  assert.match(stateColor('Closed Incomplete'), /\x1b\[31m/); // red
 });

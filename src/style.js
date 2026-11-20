@@ -53,8 +53,9 @@ export function wrap(text, width) {
   return out;
 }
 
-/** "assignment_group" → "Assignment group", "caller_id" → "Caller". */
+/** "assignment_group" → "Assignment group", "caller_id" → "Caller", "sys_id" → "Sys ID". */
 export const humanLabel = (field) => {
+  if (field === 'sys_id') return 'Sys ID';
   const s = String(field).replace(/^u_/, '').replace(/_id$/, '').replace(/_/g, ' ').trim();
   return s.charAt(0).toUpperCase() + s.slice(1);
 };
@@ -64,9 +65,22 @@ export function stateColor(state) {
   const s = String(state ?? '').toLowerCase();
   if (!s) return '';
   if (/incomplete|reject|fail|cancel|skipped/.test(s)) return red(state);
-  if (/closed|resolved|complete|approved|done|implement/.test(s)) return magenta(state);
-  if (/progress|pending|hold|wait|review|scheduled|assess|authori/.test(s)) return yellow(state);
+  if (/closed|resolved|complete|approved|done/.test(s)) return magenta(state);
+  if (/progress|pending|hold|wait|review|scheduled|assess|authori|implement/.test(s)) return yellow(state);
   return green(state);
+}
+
+/**
+ * Lines that look like commands, JSON or paths are left whole (the terminal soft-wraps them), so they
+ * can still be copied and pasted. Prose lines get word-wrapped.
+ */
+export function looksLikeCode(line) {
+  const t = line.trim();
+  if (!t) return false;
+  if (/^(\$ |--?[a-z]|[{[]|az |kubectl |curl |helm |terraform |git |ssh |psql |mysql |npm |snow |sudo |docker )/i.test(t)) return true;
+  if (/\\$/.test(t)) return true; // shell line continuation
+  const symbols = (t.match(/[{}[\]"=:/\\|<>;]/g) || []).length;
+  return symbols / t.length > 0.12;
 }
 
 /**
